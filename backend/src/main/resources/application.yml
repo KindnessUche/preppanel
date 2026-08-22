@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: preppanel-backend
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:5432/preppanel
+    username: ${DB_USERNAME:preppanel}
+    password: ${DB_PASSWORD:preppanel}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate   # schema is owned by Flyway migrations, not Hibernate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: 8080
+
+app:
+  jwt:
+    # 256-bit+ secret. Override with an env var in real use - this default is for local dev only.
+    secret: ${JWT_SECRET:local-dev-only-secret-key-change-me-please-32bytes+}
+    access-token-ttl-minutes: 15
+    refresh-token-ttl-days: 30
+
+  llm:
+    primary-provider: groq
+    fallback-provider: gemini
+    groq:
+      api-key: ${GROQ_API_KEY:}
+      base-url: https://api.groq.com/openai/v1
+      model: llama-3.3-70b-versatile
+    gemini:
+      api-key: ${GEMINI_API_KEY:}
+      base-url: https://generativelanguage.googleapis.com/v1beta
+      model: gemini-2.0-flash
+
+logging:
+  level:
+    com.preppanel: DEBUG
+    org.springframework.security: INFO
