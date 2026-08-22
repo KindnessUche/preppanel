@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: preppanel-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: preppanel
+      POSTGRES_USER: preppanel
+      POSTGRES_PASSWORD: preppanel
+    volumes:
+      - preppanel-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U preppanel"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: preppanel-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_USERNAME: preppanel
+      DB_PASSWORD: preppanel
+      JWT_SECRET: ${JWT_SECRET:-local-dev-only-secret-key-change-me-please-32bytes+}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Browser-side calls hit the host-mapped port, not the internal
+        # Docker network - the browser doesn't know Docker's service names.
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+    container_name: preppanel-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  preppanel-pgdata:

@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
+}
+
+* {
+  border-color: theme("colors.line");
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: #08090a;
+  color: theme("colors.ink");
+  font-feature-settings: "ss01" on, "cv01" on;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Faint blueprint grid used behind hero + feature panels */
+.bg-blueprint {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 88px 88px;
+  background-position: center top;
+}
+
+/* Elements GSAP animates in - start hidden to avoid flash-of-unstyled-content */
+.gsap-reveal {
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+/* Soft directional glow used behind CTA / AI-flavoured sections */
+.glow-accent {
+  background: radial-gradient(ellipse 60% 50% at 70% 30%, rgba(91, 141, 239, 0.16), transparent 70%);
+}
+
+/* Monospace figure/eyebrow labels, e.g. FIG_01 */
+.fig-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: theme("colors.faint");
+}
+
+/* Subtle scanline texture on illustration panels */
+.panel-texture {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.015),
+    rgba(255, 255, 255, 0.015) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+::selection {
+  background: rgba(91, 141, 239, 0.35);
+  color: white;
+}
+
+/* Manual "Reduce motion" toggle (Account page) - complements the OS-level
+   prefers-reduced-motion media query already respected inside components
+   like Orb. Applied as a class on <html> so it works even when the OS
+   setting itself isn't set. */
+.reduce-motion .orb-core,
+.reduce-motion .orb-ripple {
+  animation: none !important;
+  opacity: 0.5 !important;
+  transform: none !important;
+}
+
+.reduce-motion * {
+  scroll-behavior: auto !important;
+}
