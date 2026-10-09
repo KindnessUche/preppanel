@@ -77,4 +77,9 @@ public record PanelistArchetype(
     public static boolean exists(String id) {
         return REGISTRY.containsKey(id);
     }
+
+    /** All registered archetype ids, in registration order. Used to keep the frontend's lib/casting.ts in sync (see PanelistArchetypeSyncTest). */
+    public static java.util.Set<String> ids() {
+        return java.util.Collections.unmodifiableSet(REGISTRY.keySet());
+    }
 }

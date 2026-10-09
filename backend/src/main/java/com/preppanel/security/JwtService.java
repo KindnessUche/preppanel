@@ -79,4 +79,8 @@ public class JwtService {
     public long refreshTokenTtlDays() {
         return properties.refreshTokenTtlDays();
     }
+
+    public long accessTokenTtlSeconds() {
+        return properties.accessTokenTtlMinutes() * 60;
+    }
 }

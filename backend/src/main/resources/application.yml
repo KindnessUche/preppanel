@@ -2,6 +2,11 @@ spring:
   application:
     name: preppanel-backend
 
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:5432/preppanel
     username: ${DB_USERNAME:preppanel}
@@ -25,6 +30,11 @@ server:
   port: 8080
 
 app:
+  cookie:
+    # MUST be true (https-only cookies) in any real deployment. Default false
+    # only so local dev over plain http://localhost works out of the box.
+    secure: ${COOKIE_SECURE:false}
+
   jwt:
     # 256-bit+ secret. Override with an env var in real use - this default is for local dev only.
     secret: ${JWT_SECRET:local-dev-only-secret-key-change-me-please-32bytes+}
@@ -45,5 +55,18 @@ app:
 
 logging:
   level:
-    com.preppanel: DEBUG
+    # INFO by default so a real deployment never accidentally ships verbose
+    # logs (which can include prompt/response content). Override to DEBUG
+    # locally via LOG_LEVEL_PREPPANEL=DEBUG, or use the "dev" profile below.
+    com.preppanel: ${LOG_LEVEL_PREPPANEL:INFO}
     org.springframework.security: INFO
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+logging:
+  level:
+    com.preppanel: DEBUG

@@ -1,6 +1,7 @@
 package com.preppanel.config;
 
 import com.preppanel.security.JwtAuthFilter;
+import com.preppanel.security.RateLimitFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,6 +27,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final RateLimitFilter rateLimitFilter;
 
     /** BCrypt as agreed - strength 12 is a reasonable default cost factor for 2026 hardware. */
     @Bean
@@ -51,14 +53,20 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(csrf -> csrf.disable()) // stateless JWT API, not cookie-session based
+                // Stateless JWT API: the access token travels in an Authorization header
+                // (immune to CSRF by construction, since a cross-site form/script can't
+                // set it). The refresh-token cookie is SameSite=Strict, so browsers won't
+                // attach it to cross-site requests either - CSRF tokens would add nothing
+                // here.
+                .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         .anyRequest().authenticated())
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(rateLimitFilter, JwtAuthFilter.class);
 
         return http.build();
     }

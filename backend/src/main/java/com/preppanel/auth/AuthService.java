@@ -28,7 +28,7 @@ public class AuthService {
     private final JwtService jwtService;
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public TokenIssuance register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
             throw new ApiException(HttpStatus.CONFLICT, "An account with this email already exists");
         }
@@ -44,7 +44,7 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse login(LoginRequest request) {
+    public TokenIssuance login(LoginRequest request) {
         User user = userRepository.findByEmail(request.email().toLowerCase().trim())
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Invalid email or password"));
 
@@ -62,7 +62,11 @@ public class AuthService {
      * token - we reject it rather than silently issuing new tokens.
      */
     @Transactional
-    public AuthResponse refresh(String rawRefreshToken) {
+    public TokenIssuance refresh(String rawRefreshToken) {
+        if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "Missing refresh token");
+        }
+
         String hash = jwtService.hashToken(rawRefreshToken);
 
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash)
@@ -83,6 +87,9 @@ public class AuthService {
 
     @Transactional
     public void logout(String rawRefreshToken) {
+        if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
+            return; // nothing to revoke - treat as already logged out
+        }
         String hash = jwtService.hashToken(rawRefreshToken);
         refreshTokenRepository.findByTokenHash(hash).ifPresent(token -> {
             token.setRevoked(true);
@@ -96,7 +103,7 @@ public class AuthService {
         refreshTokenRepository.revokeAllForUser(userId);
     }
 
-    private AuthResponse issueTokenPair(User user) {
+    private TokenIssuance issueTokenPair(User user) {
         String accessToken = jwtService.generateAccessToken(user.getId(), user.getEmail());
 
         String rawRefreshToken = jwtService.generateOpaqueRefreshToken();
@@ -109,12 +116,21 @@ public class AuthService {
 
         refreshTokenRepository.save(refreshToken);
 
-        return new AuthResponse(
+        AuthResponse response = new AuthResponse(
                 user.getId(),
                 user.getEmail(),
                 accessToken,
-                rawRefreshToken,
-                15 * 60 // matches app.jwt.access-token-ttl-minutes; kept simple for v1
+                jwtService.accessTokenTtlSeconds()
         );
+
+        return new TokenIssuance(response, rawRefreshToken);
+    }
+
+    /**
+     * Pairs the body-safe {@link AuthResponse} with the raw refresh token, which
+     * never gets serialized to JSON - AuthController pulls it out to set as an
+     * httpOnly cookie and then discards it.
+     */
+    public record TokenIssuance(AuthResponse response, String rawRefreshToken) {
     }
 }

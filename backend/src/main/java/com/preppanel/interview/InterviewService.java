@@ -8,6 +8,7 @@ import com.preppanel.llm.LlmService;
 import com.preppanel.llm.PanelistRosterEntry;
 import com.preppanel.llm.TranscriptTurn;
 import com.preppanel.panel.PanelistArchetype;
+import com.preppanel.profile.ProfileService;
 import com.preppanel.question.QuestionBank;
 import com.preppanel.question.QuestionBankRepository;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ public class InterviewService {
     private final AnswerRepository answerRepository;
     private final QuestionBankRepository questionBankRepository;
     private final LlmService llmService;
+    private final ProfileService profileService;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -57,7 +59,7 @@ public class InterviewService {
 
         session = sessionRepository.save(session);
 
-        TurnOutcome outcome = generateNextTurn(session, 1);
+        TurnOutcome outcome = generateNextTurn(userId, session, 1);
         // A panel terminating on question 1 would be a prompt/model bug, not a real
         // scenario - but handle it defensively rather than NPE-ing on a null question.
         if (outcome.terminated()) {
@@ -101,7 +103,7 @@ public class InterviewService {
             return buildSessionResponse(session, null, true);
         }
 
-        TurnOutcome outcome = generateNextTurn(session, currentSeq + 1);
+        TurnOutcome outcome = generateNextTurn(userId, session, currentSeq + 1);
 
         if (outcome.terminated()) {
             session.setStatus("completed");
@@ -164,23 +166,25 @@ public class InterviewService {
      * termination). If no panel was cast, this falls back to the original
      * single-tone question generator for backward compatibility.
      */
-    private TurnOutcome generateNextTurn(InterviewSession session, int sequenceNum) {
+    private TurnOutcome generateNextTurn(UUID userId, InterviewSession session, int sequenceNum) {
         List<PanelistSelection> panelists = deserializePanelists(session.getPanelists());
+        String candidateSummary = profileService.getCandidateSummaryForPrompt(userId);
 
         if (panelists.isEmpty()) {
-            return TurnOutcome.of(generateLegacyToneQuestion(session, sequenceNum));
+            return TurnOutcome.of(generateLegacyToneQuestion(session, sequenceNum, candidateSummary));
         }
 
-        return generatePanelTurn(session, sequenceNum, panelists);
+        return generatePanelTurn(session, sequenceNum, panelists, candidateSummary);
     }
 
-    private SessionQuestion generateLegacyToneQuestion(InterviewSession session, int sequenceNum) {
+    private SessionQuestion generateLegacyToneQuestion(InterviewSession session, int sequenceNum, String candidateSummary) {
         List<String> alreadyAsked = questionRepository.findBySessionIdOrderBySequenceNumAsc(session.getId()).stream()
                 .map(SessionQuestion::getQuestionText)
                 .toList();
 
         try {
-            String questionText = llmService.generateBehavioralQuestion(session.getRole(), alreadyAsked, session.getTone());
+            String questionText = llmService.generateBehavioralQuestion(
+                    session.getRole(), alreadyAsked, session.getTone(), candidateSummary);
             SessionQuestion question = SessionQuestion.builder()
                     .sessionId(session.getId())
                     .questionBankId(null)
@@ -196,7 +200,7 @@ public class InterviewService {
         }
     }
 
-    private TurnOutcome generatePanelTurn(InterviewSession session, int sequenceNum, List<PanelistSelection> panelistSelections) {
+    private TurnOutcome generatePanelTurn(InterviewSession session, int sequenceNum, List<PanelistSelection> panelistSelections, String candidateSummary) {
         UUID sessionId = session.getId();
 
         List<PanelistRosterEntry> roster = panelistSelections.stream()
@@ -217,7 +221,7 @@ public class InterviewService {
 
         try {
             String raw = llmService.generatePanelTurn(
-                    session.getRole(), session.getExperienceLevel(), speaker, roster, transcript);
+                    session.getRole(), session.getExperienceLevel(), speaker, roster, transcript, candidateSummary);
             String cleaned = stripMarkdownFences(raw);
             com.preppanel.llm.dto.PanelTurnJudgment judgment =
                     objectMapper.readValue(cleaned, com.preppanel.llm.dto.PanelTurnJudgment.class);

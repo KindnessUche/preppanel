@@ -31,13 +31,15 @@ public class LlmService {
      * Generates a single behavioral interview question tailored to the given role and
      * tone preset, avoiding repeats of what's already been asked in this session.
      */
-    public String generateBehavioralQuestion(String role, List<String> alreadyAsked, String tone) {
+    public String generateBehavioralQuestion(String role, List<String> alreadyAsked, String tone, String candidateSummary) {
         String systemPrompt = """
                 You are an experienced technical interviewer conducting a behavioral interview.
                 Generate exactly ONE behavioral interview question - no preamble, no numbering,
                 no quotation marks, just the question text itself, one sentence or two at most.
                 The question should be realistic for a real interview and probe how the candidate
                 has handled a real past situation (e.g. conflict, failure, prioritization, leadership).
+                Where natural, tailor it to the candidate's actual background below rather than
+                asking something generic - but don't force a connection that isn't there.
 
                 %s
                 """.formatted(tonePromptFragment(tone));
@@ -46,15 +48,22 @@ public class LlmService {
                 ? "(none yet)"
                 : String.join("\n- ", alreadyAsked);
 
+        String backgroundLine = (candidateSummary == null || candidateSummary.isBlank())
+                ? "(No resume/portfolio on file - ask a role-appropriate general question.)"
+                : candidateSummary;
+
         String userPrompt = """
                 Candidate is interviewing for this role: %s
+
+                Candidate background:
+                %s
 
                 Questions already asked in this session (do not repeat these or ask something
                 very similar):
                 - %s
 
                 Generate the next behavioral question now.
-                """.formatted(role, askedList);
+                """.formatted(role, backgroundLine, askedList);
 
         return completeWithFallback(systemPrompt, userPrompt);
     }
@@ -90,7 +99,8 @@ public class LlmService {
             String experienceLevel,
             PanelistRosterEntry speaker,
             List<PanelistRosterEntry> fullPanel,
-            List<TranscriptTurn> priorTurns
+            List<TranscriptTurn> priorTurns,
+            String candidateSummary
     ) {
         String panelRoster = fullPanel.stream()
                 .map(p -> "- " + p.name() + " (" + p.archetype().toneDescription() + ")")
@@ -101,8 +111,14 @@ public class LlmService {
                 : "The candidate is targeting a " + experienceLevel + "-level role - calibrate question "
                         + "difficulty and depth accordingly.\n";
 
+        String backgroundLine = (candidateSummary == null || candidateSummary.isBlank())
+                ? ""
+                : "\nCandidate background (reference specifics from this where it's natural to do so,\n"
+                        + "don't force it):\n" + candidateSummary + "\n";
+
         String systemPrompt = """
                 You are %s, one panelist on a real interview panel alongside colleagues:
+                %s
                 %s
                 %s
 
@@ -125,7 +141,7 @@ public class LlmService {
                       single blunt, short, or unusually candid answer. Default false.>,
                   "terminateReason": "<short, professional reason if terminate=true, else null>"
                 }
-                """.formatted(speaker.name(), panelRoster, experienceLine, speaker.archetype().personaInstructions());
+                """.formatted(speaker.name(), panelRoster, experienceLine, backgroundLine, speaker.archetype().personaInstructions());
 
         StringBuilder transcript = new StringBuilder();
         if (priorTurns.isEmpty()) {
