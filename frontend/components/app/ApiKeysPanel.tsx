@@ -166,7 +166,7 @@ export default function ApiKeysPanel() {
       {/* ---- voice ---- */}
       <div className="mt-5 border-t border-line pt-4">
         <p className="text-xs font-medium text-ink">Voice (speech-to-text)</p>
-        <p className="mt-1 text-xs text-muted">AssemblyAI turns your spoken answers into text.</p>
+        <p className="mt-1 text-xs text-muted">AssemblyAI turns your spoken answers into live text as you talk.</p>
 
         <label className="mt-3 block">
           <span className="text-xs text-muted">
@@ -196,6 +196,14 @@ export default function ApiKeysPanel() {
         </label>
 
         <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3">
+          <label className="flex items-center gap-2 text-xs text-ink">
+            <input
+              type="checkbox"
+              checked={settings.autoListen}
+              onChange={(e) => update({ autoListen: e.target.checked })}
+            />
+            Start listening automatically when a question appears
+          </label>
           <label className="flex items-center gap-2 text-xs text-ink">
             <input
               type="checkbox"

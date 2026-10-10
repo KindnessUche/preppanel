@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,8 +28,44 @@ public class AssemblyAiClient {
     private static final Duration POLL_INTERVAL = Duration.ofMillis(1500);
     private static final Duration MAX_WAIT = Duration.ofSeconds(90);
 
+    /** Streaming lives on its own host, separate from the pre-recorded API (api.assemblyai.com). */
+    static final String STREAMING_TOKEN_URL = "https://streaming.assemblyai.com/v3/token";
+    public static final String STREAMING_WS_URL = "wss://streaming.assemblyai.com/v3/ws";
+
     private final WebClient assemblyAiWebClient;
     private final AssemblyAiProperties properties;
+
+    /**
+     * Exchanges the user's real API key for a short-lived, single-purpose token the browser can use to open
+     * the live-transcription WebSocket. Browsers can't set auth headers on a WebSocket, and we never want the
+     * real key in the page, so this is AssemblyAI's recommended pattern.
+     */
+    public String createStreamingToken(String apiKey) {
+        try {
+            JsonNode body = assemblyAiWebClient.get()
+                    .uri(URI.create(STREAMING_TOKEN_URL + "?expires_in_seconds=120"))
+                    .header("authorization", apiKey)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block(Duration.ofSeconds(15));
+            if (body == null || !body.hasNonNull("token")) {
+                throw new IllegalStateException("AssemblyAI returned no streaming token");
+            }
+            return body.get("token").asText();
+        } catch (WebClientResponseException e) {
+            int status = e.getStatusCode().value();
+            if (status == 401 || status == 403) {
+                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+                        "AssemblyAI rejected your API key. Check it in Account → API keys.");
+            }
+            log.warn("AssemblyAI streaming token request failed with HTTP {}: {}", status, e.getResponseBodyAsString());
+            throw new ApiException(HttpStatus.BAD_GATEWAY,
+                    "Live transcription isn't available on your AssemblyAI account (HTTP " + status + "). You can still type your answer.");
+        } catch (Exception e) {
+            log.warn("AssemblyAI streaming token failed: {}", e.getMessage());
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Could not start live transcription - you can still type your answer.");
+        }
+    }
 
     public TranscriptionResult transcribe(byte[] audio, String apiKey) {
         try {

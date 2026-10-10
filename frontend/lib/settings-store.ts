@@ -15,6 +15,8 @@ export interface AppSettings {
   keys: Partial<Record<ProviderId, string>>;
   models: Partial<Record<ProviderId, string>>;
   assemblyAiKey: string;
+  /** Hands-free: start listening automatically when each question appears. */
+  autoListen: boolean;
   /** Hands-free: send the answer automatically after a pause. */
   autoSend: boolean;
   silenceSeconds: number;
@@ -25,6 +27,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keys: {},
   models: {},
   assemblyAiKey: "",
+  autoListen: true,
   autoSend: true,
   silenceSeconds: 3,
 };

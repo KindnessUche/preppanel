@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import VoiceRecorder from "@/components/VoiceRecorder";
 import type { AudioMetrics } from "@/lib/voice";
+import { useMicrophone } from "@/lib/microphone";
 import { useAuth } from "@/lib/auth-context";
 import Link from "next/link";
 import { loadSettings, hasReasoningKey, type AppSettings, DEFAULT_SETTINGS } from "@/lib/settings-store";
@@ -49,6 +50,9 @@ export default function PracticePage() {
   const [audioMetrics, setAudioMetrics] = useState<AudioMetrics | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const mic = useMicrophone();
+  const [userTyped, setUserTyped] = useState(false); // typing in the box switches the mic off for this question
+  const voiceAvailable = settings.assemblyAiKey.trim() !== "";
 
   // Keys/voice prefs live in localStorage, so read them after mount (and re-read on each stage
   // change so edits made on the Account page show up without a full reload).
@@ -105,7 +109,9 @@ export default function PracticePage() {
     }
   }
 
-  function enterRoom() {
+  async function enterRoom() {
+    // Ask for the microphone now (inside the click) so the browser prompts once, before the first question.
+    if (voiceAvailable) await mic.request();
     setStage("live");
     setRevealingQuestion(true);
     setTimeout(() => setRevealingQuestion(false), 700);
@@ -124,6 +130,7 @@ export default function PracticePage() {
       const data = await readJsonOrThrow<SessionResponse>(res);
       setSession(data);
       setAnswerText("");
+      setUserTyped(false);
       setAudioMetrics(null);
       setShowStructureHelper(false);
 
@@ -156,6 +163,7 @@ export default function PracticePage() {
   }
 
   function runDebrief(sessionId: string, terminationReason: string | null) {
+    mic.release();
     setStage("debrief");
     setDebriefStep(0);
     setDebriefTerminated(terminationReason);
@@ -332,11 +340,27 @@ export default function PracticePage() {
           {cast.map((c) => c.name).join(", ")} — focused on {role || "your role"}.
           Answer in your own words. There's no perfect script here.
         </p>
+        {voiceAvailable ? (
+          <p className="mt-4 rounded-lg border border-line bg-panel/40 px-4 py-3 text-xs leading-relaxed text-muted">
+            🎙 Voice is on. Your browser will ask for microphone access when you enter. After each question I&apos;ll
+            listen automatically and show live captions
+            {settings.autoSend ? ` — pause for ${settings.silenceSeconds}s when you're done and I'll send it.` : "."}
+          </p>
+        ) : (
+          <p className="mt-4 text-xs text-faint">
+            Want to answer out loud?{" "}
+            <Link href="/account" className="underline">
+              Add an AssemblyAI key
+            </Link>{" "}
+            first. Typing works too.
+          </p>
+        )}
         <button
-          onClick={enterRoom}
-          className="mt-8 rounded-md bg-ink px-6 py-3 font-mono text-sm font-medium text-canvas transition hover:bg-white"
+          onClick={() => void enterRoom()}
+          disabled={mic.status === "requesting"}
+          className="mt-8 rounded-md bg-ink px-6 py-3 font-mono text-sm font-medium text-canvas transition hover:bg-white disabled:opacity-60"
         >
-          Enter
+          {mic.status === "requesting" ? "Waiting for microphone…" : voiceAvailable ? "Enter & allow microphone" : "Enter"}
         </button>
       </div>
     );
@@ -408,23 +432,32 @@ export default function PracticePage() {
 
               <textarea
                 value={answerText}
-                onChange={(e) => setAnswerText(e.target.value)}
+                onChange={(e) => {
+                  setAnswerText(e.target.value);
+                  setUserTyped(true);
+                }}
                 placeholder="Type your answer…"
                 rows={5}
                 className="mt-5 w-full resize-none rounded-lg border border-line bg-canvas px-4 py-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent"
               />
 
-              <VoiceRecorder
-                disabled={busy}
-                autoSend={settings.autoSend}
-                silenceSeconds={settings.silenceSeconds}
-                onTranscript={(text, metrics, autoSend) => {
-                  const clipped = text.slice(0, 4000);
-                  setAnswerText(clipped);
-                  setAudioMetrics(metrics);
-                  if (autoSend) handleAnswer(clipped, metrics);
-                }}
-              />
+              {voiceAvailable ? (
+                <VoiceRecorder
+                  mic={mic}
+                  disabled={busy}
+                  autoStart={settings.autoListen && !answerText.trim()}
+                  suspended={userTyped}
+                  onManualStart={() => setUserTyped(false)}
+                  autoSend={settings.autoSend}
+                  silenceSeconds={settings.silenceSeconds}
+                  onTranscript={(text, metrics, autoSend) => {
+                    const clipped = text.slice(0, 4000);
+                    setAnswerText(clipped);
+                    setAudioMetrics(metrics);
+                    if (autoSend) handleAnswer(clipped, metrics);
+                  }}
+                />
+              ) : null}
 
               {error && (
                 <div className="mt-4 rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-300">

@@ -37,6 +37,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private static final Duration LLM_WINDOW = Duration.ofMinutes(1);
     private static final int LLM_MAX_HITS = 8;
 
+    /** One token per question in hands-free mode; separate from the LLM bucket so voice never eats answer quota. */
+    private static final int TOKEN_MAX_HITS = 20;
+
     private final RateLimiter rateLimiter;
     private final ObjectMapper objectMapper;
 
@@ -51,6 +54,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if ("POST".equals(method) && path.equals("/api/auth/login")) {
             if (!rateLimiter.allow("login:" + clientIp(request), LOGIN_MAX_HITS, LOGIN_WINDOW)) {
                 rejectTooManyRequests(response, "Too many login attempts. Please wait a minute and try again.");
+                return;
+            }
+        } else if ("GET".equals(method) && path.equals("/api/transcribe/token")) {
+            String userId = currentUserId();
+            if (userId != null && !rateLimiter.allow("aai-token:" + userId, TOKEN_MAX_HITS, LLM_WINDOW)) {
+                rejectTooManyRequests(response, "You're doing that too quickly - please slow down a bit.");
                 return;
             }
         } else if ("POST".equals(method) && isLlmCallingPath(path)) {

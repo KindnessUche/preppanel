@@ -60,6 +60,9 @@ app:
     base-url: https://api.assemblyai.com
     # Tried in order. Override via env if AssemblyAI renames/adds models.
     speech-models: universal-3-pro,universal-2
+    # Live (streaming) transcription model. Leave empty to use AssemblyAI's default; set e.g.
+    # ASSEMBLYAI_STREAMING_MODEL=universal-streaming-english (or a newer name from their docs) to pin one.
+    streaming-speech-model: ${ASSEMBLYAI_STREAMING_MODEL:}
 
 logging:
   level:
