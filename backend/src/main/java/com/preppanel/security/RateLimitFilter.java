@@ -66,10 +66,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     /** POST /api/interviews, POST .../answers, POST .../complete all trigger at least one LLM call. */
     private boolean isLlmCallingPath(String path) {
+        if (path.equals("/api/transcribe") || path.equals("/api/llm/test")) return true; // third-party calls
         if (!path.startsWith("/api/interviews")) return false;
         return path.equals("/api/interviews")
                 || path.endsWith("/answers")
-                || path.endsWith("/complete");
+                || path.endsWith("/complete")
+                || path.endsWith("/score");
     }
 
     private String currentUserId() {

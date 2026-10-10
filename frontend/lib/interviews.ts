@@ -51,6 +51,9 @@ export interface SessionReportResponse {
   }[];
 }
 
+import type { AudioMetrics } from "@/lib/voice";
+import { llmHeaders } from "@/lib/settings-store";
+
 export type AuthFetch = (path: string, init?: RequestInit) => Promise<Response>;
 
 export interface CreateSessionParams {
@@ -63,7 +66,7 @@ export interface CreateSessionParams {
 export function createSession(authFetch: AuthFetch, params: CreateSessionParams) {
   return authFetch("/api/interviews", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...llmHeaders() },
     body: JSON.stringify({
       role: params.role,
       mode: "text",
@@ -74,20 +77,25 @@ export function createSession(authFetch: AuthFetch, params: CreateSessionParams)
   });
 }
 
-export function submitAnswer(authFetch: AuthFetch, sessionId: string, answerText: string) {
+export function submitAnswer(
+  authFetch: AuthFetch,
+  sessionId: string,
+  answerText: string,
+  audioMetrics?: AudioMetrics | null
+) {
   return authFetch(`/api/interviews/${sessionId}/answers`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ answerText }),
+    headers: { "Content-Type": "application/json", ...llmHeaders() },
+    body: JSON.stringify({ answerText, audioMetrics: audioMetrics ?? null }),
   });
 }
 
 export function completeSession(authFetch: AuthFetch, sessionId: string) {
-  return authFetch(`/api/interviews/${sessionId}/complete`, { method: "POST" });
+  return authFetch(`/api/interviews/${sessionId}/complete`, { method: "POST", headers: llmHeaders() });
 }
 
 export function scoreSession(authFetch: AuthFetch, sessionId: string) {
-  return authFetch(`/api/interviews/${sessionId}/score`, { method: "POST" });
+  return authFetch(`/api/interviews/${sessionId}/score`, { method: "POST", headers: llmHeaders() });
 }
 
 export function getSessionReport(authFetch: AuthFetch, sessionId: string) {

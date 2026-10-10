@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { getReduceMotion, setReduceMotion } from "@/lib/motion-pref";
 import { getProfile, uploadResume, updatePortfolio, type ProfileResponse } from "@/lib/profile";
 import { ApiError } from "@/lib/api";
+import ApiKeysPanel from "@/components/app/ApiKeysPanel";
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -190,6 +191,8 @@ export default function AccountPage() {
           of discovering a problem mid-interview.
         </p>
       </div>
+
+      <ApiKeysPanel />
 
       <ResumePortfolioPanel />
 

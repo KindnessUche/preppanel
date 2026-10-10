@@ -42,7 +42,7 @@ class ScoringServiceTest {
     void setUp() {
         scoringService = new ScoringService(
                 sessionRepository, questionRepository, answerRepository, scoreRepository,
-                llmService, new ObjectMapper());
+                llmService, new ObjectMapper(), new com.preppanel.transcription.DeliveryScorer());
     }
 
     private InterviewSession sessionOwnedBy(UUID owner) {

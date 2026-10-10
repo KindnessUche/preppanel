@@ -30,8 +30,10 @@ services:
       DB_USERNAME: preppanel
       DB_PASSWORD: preppanel
       JWT_SECRET: ${JWT_SECRET:-local-dev-only-secret-key-change-me-please-32bytes+}
-      GROQ_API_KEY: ${GROQ_API_KEY}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      # Optional server-side defaults for local dev. Normally users add their own keys in the app
+      # (Account -> API keys); those are stored in the browser and never by the backend.
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     ports:
       - "8080:8080"
 

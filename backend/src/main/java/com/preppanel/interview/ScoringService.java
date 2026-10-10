@@ -2,6 +2,8 @@ package com.preppanel.interview;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.preppanel.exception.ApiException;
+import com.preppanel.transcription.AudioMetrics;
+import com.preppanel.transcription.DeliveryScorer;
 import com.preppanel.interview.dto.ScoreResponse;
 import com.preppanel.interview.dto.SessionReportResponse;
 import com.preppanel.llm.LlmService;
@@ -26,6 +28,7 @@ public class ScoringService {
     private final ScoreRepository scoreRepository;
     private final LlmService llmService;
     private final ObjectMapper objectMapper;
+    private final DeliveryScorer deliveryScorer;
 
     /**
      * Scores every answered-but-unscored question in a session. Safe to call multiple
@@ -64,12 +67,24 @@ public class ScoringService {
                 .contentScore(clamp(judgment.contentScore()))
                 .structureScore(clamp(judgment.structureScore()))
                 .technicalScore(judgment.technicalScore() == null ? null : clamp(judgment.technicalScore()))
+                .deliveryScore(deliveryScoreFor(answer))
                 .feedbackText(judgment.feedbackText() == null || judgment.feedbackText().isBlank()
                         ? "No specific feedback generated."
                         : judgment.feedbackText())
                 .build();
 
         scoreRepository.save(score);
+    }
+
+    /** Only voice answers have metrics; typed answers get no delivery score (null). */
+    private Integer deliveryScoreFor(Answer answer) {
+        if (answer.getAudioMetrics() == null || answer.getAudioMetrics().isBlank()) return null;
+        try {
+            return deliveryScorer.score(objectMapper.readValue(answer.getAudioMetrics(), AudioMetrics.class));
+        } catch (Exception e) {
+            log.warn("Could not compute delivery score: {}", e.getMessage());
+            return null;
+        }
     }
 
     /** LLM output isn't trustworthy by construction - parse defensively, retry once on garbage. */
@@ -84,6 +99,8 @@ public class ScoringService {
                     throw new IllegalArgumentException("Missing required score fields");
                 }
                 return judgment;
+            } catch (ApiException configProblem) {
+                throw configProblem; // no/invalid key: surface it, don't hand out fake neutral scores
             } catch (Exception e) {
                 log.warn("Scoring attempt {} failed to parse LLM output: {}", attempt, e.getMessage());
                 if (attempt == 2) {

@@ -93,6 +93,7 @@ public class InterviewService {
         Answer answer = Answer.builder()
                 .questionId(currentQuestion.getId())
                 .answerText(request.answerText())
+                .audioMetrics(serializeAudioMetrics(request))
                 .build();
         answerRepository.save(answer);
 
@@ -115,6 +116,17 @@ public class InterviewService {
         }
 
         return buildSessionResponse(session, toQuestionResponse(outcome.question()), false);
+    }
+
+    /** null for typed answers; JSON string for voice answers (the column is jsonb). */
+    private String serializeAudioMetrics(SubmitAnswerRequest request) {
+        if (request.audioMetrics() == null) return null;
+        try {
+            return objectMapper.writeValueAsString(request.audioMetrics());
+        } catch (Exception e) {
+            log.warn("Could not serialize audio metrics, storing answer without them: {}", e.getMessage());
+            return null;
+        }
     }
 
     @Transactional
@@ -194,6 +206,8 @@ public class InterviewService {
                     .source("llm_generated")
                     .build();
             return questionRepository.save(question);
+        } catch (ApiException configProblem) {
+            throw configProblem; // e.g. no/invalid API key - tell the user instead of silently using the bank
         } catch (Exception llmFailure) {
             log.warn("LLM question generation failed, falling back to question bank: {}", llmFailure.getMessage());
             return questionRepository.save(pickFromBank(session.getId(), sequenceNum));
@@ -252,6 +266,8 @@ public class InterviewService {
                     .build();
 
             return TurnOutcome.of(questionRepository.save(question));
+        } catch (ApiException configProblem) {
+            throw configProblem;
         } catch (Exception llmFailure) {
             log.warn("Panel turn generation failed, falling back to question bank: {}", llmFailure.getMessage());
             SessionQuestion fallback = pickFromBank(sessionId, sequenceNum);

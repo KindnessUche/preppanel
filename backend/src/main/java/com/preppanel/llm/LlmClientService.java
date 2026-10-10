@@ -1,15 +1,16 @@
 package com.preppanel.llm;
 
+import java.util.Set;
+
 /**
- * Abstraction over LLM providers. Implementations should be pure - given a prompt,
- * return the model's raw text response, or throw on failure so the caller (LlmService)
- * can fall back to the next provider.
+ * Abstraction over LLM vendors. Implementations are stateless: the key and model come in with each
+ * call (from the user's Settings), never from stored configuration.
  */
 public interface LlmClientService {
 
-    /** Short identifier used in logs/errors, e.g. "groq" or "gemini". */
-    String providerName();
+    /** Provider ids this client handles (see LlmProviders), e.g. {"openai","xai","groq"}. */
+    Set<String> providers();
 
-    /** Sends a single user-role prompt and returns the model's text response. */
-    String complete(String systemPrompt, String userPrompt);
+    /** Sends one system+user prompt and returns the model's text. Throws on failure. */
+    String complete(String systemPrompt, String userPrompt, LlmCredentials credentials);
 }

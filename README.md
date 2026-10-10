@@ -10,14 +10,13 @@ and run it yourself with the one command below.
 
 ## Run it
 
-You need [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-and a free [Groq API key](https://console.groq.com) (no card required).
+You need [Docker Desktop](https://www.docker.com/products/docker-desktop/). No AI keys
+are needed to start it.
 
 ```bash
 git clone <this-repo-url>
 cd preppanel
 cp .env.example .env
-# open .env and paste your GROQ_API_KEY
 
 docker compose up --build
 ```
@@ -27,7 +26,12 @@ apps). Once it's up:
 
 1. Open **http://localhost:3000**
 2. Register an account
-3. Go to **Practice**, cast a panel, and try a session
+3. Open **Account → API keys** and add your own key for the reasoning model
+   (Claude, ChatGPT, Gemini, Grok or Groq) and, for voice answers, an
+   [AssemblyAI](https://www.assemblyai.com) key. They're stored only in your
+   browser and are never saved by the backend.
+4. Go to **Practice**, cast a panel, and try a session. Click "Answer by
+   voice" and it sends your answer automatically after a short pause.
 
 That's the whole setup. Postgres, the Spring Boot API, and the Next.js
 frontend all start together from one command.

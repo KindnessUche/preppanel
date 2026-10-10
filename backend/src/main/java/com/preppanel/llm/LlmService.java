@@ -3,6 +3,10 @@ package com.preppanel.llm;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import org.springframework.http.HttpStatus;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -18,13 +22,18 @@ import java.util.Map;
 @Slf4j
 public class LlmService {
 
-    private final Map<String, LlmClientService> clientsByProvider;
+    private final Map<String, LlmClientService> clientsByProvider = new HashMap<>();
     private final LlmProperties properties;
+    private final RequestCredentials requestCredentials;
 
-    public LlmService(List<LlmClientService> clients, LlmProperties properties) {
-        this.clientsByProvider = clients.stream()
-                .collect(java.util.stream.Collectors.toMap(LlmClientService::providerName, c -> c));
+    public LlmService(List<LlmClientService> clients, LlmProperties properties, RequestCredentials requestCredentials) {
+        for (LlmClientService client : clients) {
+            for (String provider : client.providers()) {
+                clientsByProvider.put(provider, client);
+            }
+        }
         this.properties = properties;
+        this.requestCredentials = requestCredentials;
     }
 
     /**
@@ -195,31 +204,61 @@ public class LlmService {
         return completeWithFallback(systemPrompt, userPrompt);
     }
 
-    private String completeWithFallback(String systemPrompt, String userPrompt) {
-        String primary = properties.primaryProvider();
-        String fallback = properties.fallbackProvider();
+    /**
+     * Picks whose key to use, in order of preference: the key the user set in Settings (sent with
+     * this request), else the optional server-side defaults (GROQ_API_KEY / GEMINI_API_KEY env vars,
+     * handy for local dev). With server defaults we still fall back primary -> secondary.
+     */
+    private List<LlmCredentials> candidates() {
+        var fromUser = requestCredentials.llm();
+        if (fromUser.isPresent()) {
+            LlmCredentials creds = fromUser.get();
+            if (!clientsByProvider.containsKey(creds.provider())) {
+                throw new LlmConfigException(HttpStatus.BAD_REQUEST, "Unknown AI provider: " + creds.provider());
+            }
+            return List.of(creds);
+        }
 
-        try {
-            return call(primary, systemPrompt, userPrompt);
-        } catch (Exception primaryFailure) {
-            log.warn("LLM primary provider '{}' failed, falling back to '{}': {}",
-                    primary, fallback, primaryFailure.getMessage());
-            try {
-                return call(fallback, systemPrompt, userPrompt);
-            } catch (Exception fallbackFailure) {
-                log.error("LLM fallback provider '{}' also failed", fallback, fallbackFailure);
-                throw new LlmProviderException("all",
-                        "Both primary (" + primary + ") and fallback (" + fallback + ") providers failed",
-                        fallbackFailure);
+        List<LlmCredentials> server = new ArrayList<>();
+        for (String provider : List.of(properties.primaryProvider(), properties.fallbackProvider())) {
+            if ("groq".equals(provider) && properties.groq() != null && notBlank(properties.groq().apiKey())) {
+                server.add(new LlmCredentials("groq", properties.groq().apiKey(), properties.groq().model()));
+            } else if ("gemini".equals(provider) && properties.gemini() != null && notBlank(properties.gemini().apiKey())) {
+                server.add(new LlmCredentials("gemini", properties.gemini().apiKey(), properties.gemini().model()));
             }
         }
+        if (server.isEmpty()) {
+            throw new LlmConfigException(HttpStatus.BAD_REQUEST,
+                    "No AI provider is set up yet. Open Account → API keys and add your Claude, ChatGPT, Gemini or Grok key.");
+        }
+        return server;
     }
 
-    private String call(String provider, String systemPrompt, String userPrompt) {
-        LlmClientService client = clientsByProvider.get(provider);
-        if (client == null) {
-            throw new LlmProviderException(provider, "No LlmClientService registered for provider: " + provider);
+    private String completeWithFallback(String systemPrompt, String userPrompt) {
+        List<LlmCredentials> candidates = candidates();
+        RuntimeException last = null;
+
+        for (int i = 0; i < candidates.size(); i++) {
+            LlmCredentials creds = candidates.get(i);
+            try {
+                return clientsByProvider.get(creds.provider()).complete(systemPrompt, userPrompt, creds);
+            } catch (RuntimeException e) {
+                last = e;
+                if (i < candidates.size() - 1) {
+                    log.warn("LLM provider '{}' failed, trying next: {}", creds.provider(), e.getMessage());
+                }
+            }
         }
-        return client.complete(systemPrompt, userPrompt);
+        throw last;
+    }
+
+    /** Cheap connectivity check used by the Settings page's "Test" button. */
+    public String ping() {
+        return completeWithFallback(
+                "You are a connectivity check. Reply with the single word OK.", "ping");
+    }
+
+    private static boolean notBlank(String s) {
+        return s != null && !s.isBlank();
     }
 }

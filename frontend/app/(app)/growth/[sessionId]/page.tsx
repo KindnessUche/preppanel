@@ -146,6 +146,12 @@ export default function ReportPage() {
                     <p className="mt-1 text-sm text-muted">{item.score.feedbackText}</p>
                   </div>
                 )}
+                {item.score && (
+                  <p className="font-mono text-[11px] text-faint">
+                    Content {item.score.contentScore} · Structure {item.score.structureScore}
+                    {item.score.deliveryScore !== null && ` · Delivery ${item.score.deliveryScore} (voice)`}
+                  </p>
+                )}
               </div>
             )}
           </div>

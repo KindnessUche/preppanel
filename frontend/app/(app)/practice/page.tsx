@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import VoiceRecorder from "@/components/VoiceRecorder";
+import type { AudioMetrics } from "@/lib/voice";
 import { useAuth } from "@/lib/auth-context";
+import Link from "next/link";
+import { loadSettings, hasReasoningKey, type AppSettings, DEFAULT_SETTINGS } from "@/lib/settings-store";
 import { readJsonOrThrow, ApiError } from "@/lib/api";
 import {
   createSession,
@@ -42,6 +46,16 @@ export default function PracticePage() {
   const [cast, setCast] = useState<CastSlot[]>([]);
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [answerText, setAnswerText] = useState("");
+  const [audioMetrics, setAudioMetrics] = useState<AudioMetrics | null>(null);
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+
+  // Keys/voice prefs live in localStorage, so read them after mount (and re-read on each stage
+  // change so edits made on the Account page show up without a full reload).
+  useEffect(() => {
+    setSettings(loadSettings());
+    setSettingsLoaded(true);
+  }, [stage]);
   const [revealingQuestion, setRevealingQuestion] = useState(false);
   const [showStructureHelper, setShowStructureHelper] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -97,16 +111,20 @@ export default function PracticePage() {
     setTimeout(() => setRevealingQuestion(false), 700);
   }
 
-  async function handleAnswer() {
-    if (!session) return;
+  async function handleAnswer(textOverride?: string, metricsOverride?: AudioMetrics | null) {
+    if (!session || busy) return;
+    const text = (textOverride ?? answerText).trim();
+    if (!text) return;
+    const metrics = metricsOverride !== undefined ? metricsOverride : audioMetrics;
     setBusy(true);
     setError(null);
     setRevealingQuestion(true);
     try {
-      const res = await withMinimumDelay(submitAnswer(authFetch, session.sessionId, answerText), 700);
+      const res = await withMinimumDelay(submitAnswer(authFetch, session.sessionId, text, metrics), 700);
       const data = await readJsonOrThrow<SessionResponse>(res);
       setSession(data);
       setAnswerText("");
+      setAudioMetrics(null);
       setShowStructureHelper(false);
 
       if (data.completed) {
@@ -270,6 +288,16 @@ export default function PracticePage() {
             </p>
           </div>
 
+          {settingsLoaded && !hasReasoningKey(settings) && (
+            <div className="mt-5 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-ink">
+              No AI key saved yet.{" "}
+              <Link href="/account" className="underline">
+                Add your Claude, ChatGPT, Gemini or Grok key
+              </Link>{" "}
+              to run the interview (voice answers also need an AssemblyAI key).
+            </div>
+          )}
+
           {error && (
             <div className="mt-5 rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-300">
               {error}
@@ -386,6 +414,18 @@ export default function PracticePage() {
                 className="mt-5 w-full resize-none rounded-lg border border-line bg-canvas px-4 py-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent"
               />
 
+              <VoiceRecorder
+                disabled={busy}
+                autoSend={settings.autoSend}
+                silenceSeconds={settings.silenceSeconds}
+                onTranscript={(text, metrics, autoSend) => {
+                  const clipped = text.slice(0, 4000);
+                  setAnswerText(clipped);
+                  setAudioMetrics(metrics);
+                  if (autoSend) handleAnswer(clipped, metrics);
+                }}
+              />
+
               {error && (
                 <div className="mt-4 rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-300">
                   {error}
@@ -393,7 +433,7 @@ export default function PracticePage() {
               )}
 
               <button
-                onClick={handleAnswer}
+                onClick={() => handleAnswer()}
                 disabled={busy || !answerText.trim()}
                 className="mt-4 rounded-md bg-ink px-6 py-3 font-mono text-sm font-medium text-canvas transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
               >
