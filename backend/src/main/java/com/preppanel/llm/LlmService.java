@@ -1,5 +1,8 @@
 package com.preppanel.llm;
 
+import com.preppanel.llm.dto.AnswerAnalysis;
+import com.preppanel.llm.dto.InterviewPlan;
+import com.preppanel.llm.dto.TurnPlan;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -92,16 +95,27 @@ public class LlmService {
         };
     }
 
+    /** Designs the interview: the topics the panel will cover. Returns raw JSON; the caller validates it. */
+    public String generateInterviewPlan(String role, String experienceLevel, String candidateSummary,
+                                        List<PanelistRosterEntry> roster, int topicCount) {
+        InterviewPrompts.Prompt p = InterviewPrompts.plan(role, experienceLevel, candidateSummary, roster, topicCount);
+        return completeWithFallback(p.system(), p.user());
+    }
+
     /**
-     * Generates one conversational turn from a specific panelist: an optional brief
-     * in-character reaction to the candidate's previous answer, an assessment of
-     * whether the panel should end the interview early, and the next question.
-     *
-     * This is the core of the "real panel, not a chatbot" behavior - the model sees
-     * the full transcript so far (not just prior question text) and is explicitly
-     * told to react to specifics, not just avoid repeating itself. Returns the raw
-     * JSON text; the caller (InterviewService) parses and validates it defensively,
-     * same pattern as ScoringService.
+     * The hidden assessor: reads the candidate's latest answer (last element of topicTurns) and reports its
+     * biggest gap, anything worth challenging, and the most concrete thing said. Returns raw JSON.
+     */
+    public String assessAnswer(String role, String experienceLevel, InterviewPlan.Topic topic,
+                               List<TranscriptTurn> topicTurns, String candidateSummary) {
+        InterviewPrompts.Prompt p = InterviewPrompts.assess(role, experienceLevel, topic, topicTurns, candidateSummary);
+        return completeWithFallback(p.system(), p.user());
+    }
+
+    /**
+     * Generates one conversational turn from a specific panelist. The engine has already decided WHAT kind of
+     * turn this is (opening, new topic, follow-up probe, challenge, wrap-up) and WHO speaks; the model's job is
+     * to say it in that person's voice. Returns raw JSON; the caller (InterviewService) parses it defensively.
      */
     public String generatePanelTurn(
             String role,
@@ -109,69 +123,14 @@ public class LlmService {
             PanelistRosterEntry speaker,
             List<PanelistRosterEntry> fullPanel,
             List<TranscriptTurn> priorTurns,
-            String candidateSummary
+            String candidateSummary,
+            TurnPlan plan,
+            AnswerAnalysis analysis,
+            String previousSpeaker
     ) {
-        String panelRoster = fullPanel.stream()
-                .map(p -> "- " + p.name() + " (" + p.archetype().toneDescription() + ")")
-                .reduce("", (a, b) -> a + b + "\n");
-
-        String experienceLine = (experienceLevel == null || experienceLevel.isBlank())
-                ? ""
-                : "The candidate is targeting a " + experienceLevel + "-level role - calibrate question "
-                        + "difficulty and depth accordingly.\n";
-
-        String backgroundLine = (candidateSummary == null || candidateSummary.isBlank())
-                ? ""
-                : "\nCandidate background (reference specifics from this where it's natural to do so,\n"
-                        + "don't force it):\n" + candidateSummary + "\n";
-
-        String systemPrompt = """
-                You are %s, one panelist on a real interview panel alongside colleagues:
-                %s
-                %s
-                %s
-
-                Persona: %s
-
-                You are conducting a real, in-person-feeling behavioral interview - not filling out a
-                form. Speak and think like a real person on this panel, in character at all times.
-
-                Respond with ONLY a single JSON object, no markdown fences, no prose outside it:
-                {
-                  "reaction": "<1 short, natural sentence reacting to their previous answer - reference
-                      something SPECIFIC they said. Empty string "" if this is the first question of
-                      the interview.>",
-                  "moodShift": "<one of: positive, neutral, negative - how their previous answer landed
-                      with you specifically>",
-                  "nextQuestion": "<the next interview question in your voice, one or two sentences.
-                      Empty string "" if you are ending the interview (terminate=true).>",
-                  "terminate": <true only if the candidate has shown a CLEAR, REPEATED pattern across
-                      multiple answers of hostility, abuse, or flat refusal to engage - never for a
-                      single blunt, short, or unusually candid answer. Default false.>,
-                  "terminateReason": "<short, professional reason if terminate=true, else null>"
-                }
-                """.formatted(speaker.name(), panelRoster, experienceLine, backgroundLine, speaker.archetype().personaInstructions());
-
-        StringBuilder transcript = new StringBuilder();
-        if (priorTurns.isEmpty()) {
-            transcript.append("(This is the first question - no prior turns yet.)\n");
-        } else {
-            for (TranscriptTurn turn : priorTurns) {
-                transcript.append(turn.panelistName()).append(": ").append(turn.questionText()).append("\n");
-                transcript.append("Candidate: ").append(turn.answerText()).append("\n\n");
-            }
-        }
-
-        String userPrompt = """
-                Role being interviewed for: %s
-
-                Transcript so far:
-                %s
-
-                Generate your next turn now, as %s.
-                """.formatted(role, transcript, speaker.name());
-
-        return completeWithFallback(systemPrompt, userPrompt);
+        InterviewPrompts.Prompt p = InterviewPrompts.turn(
+                role, experienceLevel, speaker, fullPanel, priorTurns, candidateSummary, plan, analysis, previousSpeaker);
+        return completeWithFallback(p.system(), p.user());
     }
 
     /**
@@ -191,6 +150,11 @@ public class LlmService {
                   "feedbackText": "<2-4 sentences of specific, constructive feedback>"
                 }
                 Do not include any text outside the JSON object.
+
+                If the question starts with "[Follow-up]", it is a short, narrow follow-up to an earlier answer, not
+                a fresh behavioral question. Judge it as one: contentScore is how directly and specifically it answers
+                what was asked; structureScore is how clear and well-organised the reply is, NOT whether it contains a
+                full STAR story.
                 """;
 
         String userPrompt = """

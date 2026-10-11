@@ -10,6 +10,7 @@ public record QuestionResponse(
         String panelistArchetypeId, // null if from the static bank (no panelist personality)
         String panelistName,
         String reactionText, // this panelist's reaction to your PREVIOUS answer; "" for the first question
-        String moodShift // "positive" | "neutral" | "negative" | null (bank fallback has no mood signal)
+        String moodShift, // "positive" | "neutral" | "negative" | null (bank fallback has no mood signal)
+        String turnType // "opening" | "new_topic" | "probe" | "challenge" | "wrap_up"
 ) {
 }

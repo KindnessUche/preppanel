@@ -49,6 +49,11 @@ public class InterviewSession {
     @Column(name = "termination_reason", columnDefinition = "text")
     private String terminationReason;
 
+    // The topics this interview intends to cover (JSON, see InterviewPlan). Null for single-tone legacy sessions.
+    @Column(columnDefinition = "jsonb")
+    @org.hibernate.annotations.ColumnTransformer(write = "?::jsonb")
+    private String plan;
+
     @Column(name = "experience_level")
     private String experienceLevel; // junior | mid | senior | staff - optional
 

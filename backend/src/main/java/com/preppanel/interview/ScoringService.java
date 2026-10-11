@@ -8,6 +8,7 @@ import com.preppanel.interview.dto.ScoreResponse;
 import com.preppanel.interview.dto.SessionReportResponse;
 import com.preppanel.llm.LlmService;
 import com.preppanel.llm.dto.ScoreJudgment;
+import com.preppanel.llm.dto.TurnType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -44,6 +45,10 @@ public class ScoringService {
             if (answer == null) {
                 continue; // not answered yet - nothing to score
             }
+            TurnType turnType = TurnType.fromDb(question.getTurnType());
+            if (turnType == TurnType.OPENING || turnType == TurnType.WRAP_UP) {
+                continue; // "tell us about yourself" and "any questions for us?" aren't scored answers
+            }
             if (scoreRepository.findByAnswerId(answer.getId()).isPresent()) {
                 continue; // already scored - idempotent skip
             }
@@ -60,7 +65,11 @@ public class ScoringService {
     }
 
     private void scoreOneAnswer(String role, SessionQuestion question, Answer answer) {
-        ScoreJudgment judgment = judgeWithOneRetry(role, question.getQuestionText(), answer.getAnswerText());
+        // Follow-ups are short and narrow; the tag tells the judge not to expect a full STAR story from them.
+        String questionText = TurnType.fromDb(question.getTurnType()).isFollowUp()
+                ? "[Follow-up] " + question.getQuestionText()
+                : question.getQuestionText();
+        ScoreJudgment judgment = judgeWithOneRetry(role, questionText, answer.getAnswerText());
 
         Score score = Score.builder()
                 .answerId(answer.getId())
@@ -157,7 +166,8 @@ public class ScoringService {
                             q.getQuestionText(),
                             q.getPanelistName(),
                             answer == null ? null : answer.getAnswerText(),
-                            scoreResponse
+                            scoreResponse,
+                            q.getTurnType()
                     );
                 })
                 .toList();

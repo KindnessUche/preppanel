@@ -117,26 +117,73 @@ class InterviewServiceTest {
     // --- panel path --------------------------------------------------------------
 
     @Test
-    void createSession_panelPath_llmFailure_fallsBackToBankQuestion_attributedToSpeaker() {
+    void createSession_panelPath_llmFailure_usesFixedOpening_attributedToSpeaker() {
         when(sessionRepository.save(any(InterviewSession.class))).thenAnswer(inv -> {
             InterviewSession s = inv.getArgument(0);
             s.setId(sessionId);
             return s;
         });
         when(questionRepository.findBySessionIdOrderBySequenceNumAsc(sessionId)).thenReturn(List.of());
-        when(llmService.generatePanelTurn(anyString(), any(), any(), anyList(), anyList(), any()))
+        when(llmService.generatePanelTurn(anyString(), any(), any(), anyList(), anyList(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("Gemini timeout"));
-        when(questionBankRepository.findRandomUnusedForSession(eq(sessionId), anyString()))
-                .thenReturn(bankQuestion());
         when(questionRepository.save(any(SessionQuestion.class))).thenAnswer(inv -> inv.getArgument(0));
 
         List<PanelistSelection> panelists = List.of(new PanelistSelection("tech-lead", null));
         SessionResponse response = interviewService.createSession(userId,
                 new CreateSessionRequest("Backend Engineer", "text", null, panelists, "mid"));
 
-        assertThat(response.currentQuestion().questionText()).isEqualTo("Tell me about yourself.");
+        // The opening has fixed wording, so a model failure never leaves the candidate with a random bank question.
+        assertThat(response.currentQuestion().questionText()).contains("walk us through your background");
+        assertThat(response.currentQuestion().turnType()).isEqualTo("opening");
         assertThat(response.currentQuestion().panelistArchetypeId()).isEqualTo("tech-lead");
         assertThat(response.currentQuestion().panelistName()).isEqualTo("The Tech Lead");
+    }
+
+    @Test
+    void createSession_panelPath_savesAPlan_evenWhenPlanGenerationFails() {
+        when(sessionRepository.save(any(InterviewSession.class))).thenAnswer(inv -> {
+            InterviewSession s = inv.getArgument(0);
+            s.setId(sessionId);
+            return s;
+        });
+        when(questionRepository.findBySessionIdOrderBySequenceNumAsc(sessionId)).thenReturn(List.of());
+        when(llmService.generateInterviewPlan(anyString(), any(), any(), anyList(), anyInt()))
+                .thenReturn("this is not json");
+        when(llmService.generatePanelTurn(anyString(), any(), any(), anyList(), anyList(), any(), any(), any(), any()))
+                .thenReturn("{\"reaction\":\"Hi, I'm Sam.\",\"moodShift\":\"neutral\",\"nextQuestion\":\"Walk me through your background?\",\"terminate\":false}");
+        when(questionRepository.save(any(SessionQuestion.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        interviewService.createSession(userId, new CreateSessionRequest("Backend Engineer", "text", null,
+                List.of(new PanelistSelection("hiring-manager", null)), "senior"));
+
+        ArgumentCaptor<InterviewSession> captor = ArgumentCaptor.forClass(InterviewSession.class);
+        verify(sessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getPlan()).contains("\"topics\"").contains("\"t5\""); // senior => 5 default topics
+    }
+
+    @Test
+    void createSession_panelPath_usesTheModelsPlan_whenItIsValid() {
+        when(sessionRepository.save(any(InterviewSession.class))).thenAnswer(inv -> {
+            InterviewSession s = inv.getArgument(0);
+            s.setId(sessionId);
+            return s;
+        });
+        when(questionRepository.findBySessionIdOrderBySequenceNumAsc(sessionId)).thenReturn(List.of());
+        when(llmService.generateInterviewPlan(anyString(), any(), any(), anyList(), anyInt())).thenReturn(
+                "```json\n{\"topics\":[{\"label\":\"Owning an outage\",\"lens\":\"ownership\",\"focus\":\"x\"},"
+                        + "{\"label\":\"Tough review\",\"lens\":\"collaboration\",\"focus\":\"y\"},"
+                        + "{\"label\":\"A design call\",\"lens\":\"technical\",\"focus\":\"z\"},"
+                        + "{\"label\":\"A miss\",\"lens\":\"growth\",\"focus\":\"w\"}]}\n```");
+        when(llmService.generatePanelTurn(anyString(), any(), any(), anyList(), anyList(), any(), any(), any(), any()))
+                .thenReturn("{\"reaction\":\"\",\"moodShift\":\"neutral\",\"nextQuestion\":\"Walk me through it?\",\"terminate\":false}");
+        when(questionRepository.save(any(SessionQuestion.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        interviewService.createSession(userId, new CreateSessionRequest("Backend Engineer", "text", null,
+                List.of(new PanelistSelection("hiring-manager", null)), "mid"));
+
+        ArgumentCaptor<InterviewSession> captor = ArgumentCaptor.forClass(InterviewSession.class);
+        verify(sessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getPlan()).contains("Owning an outage").contains("\"t4\"");
     }
 
     @Test
@@ -155,32 +202,6 @@ class InterviewServiceTest {
                 .hasMessageContaining("at most 4");
 
         verifyNoInteractions(sessionRepository, llmService);
-    }
-
-    @Test
-    void createSession_panelTerminatesOnFirstTurn_completesSessionImmediately() throws Exception {
-        when(sessionRepository.save(any(InterviewSession.class))).thenAnswer(inv -> {
-            InterviewSession s = inv.getArgument(0);
-            s.setId(sessionId);
-            return s;
-        });
-        when(questionRepository.findBySessionIdOrderBySequenceNumAsc(sessionId)).thenReturn(List.of());
-        when(llmService.generatePanelTurn(anyString(), any(), any(), anyList(), anyList(), any()))
-                .thenReturn("{\"reaction\":\"\",\"moodShift\":\"negative\",\"nextQuestion\":\"\","
-                        + "\"terminate\":true,\"terminateReason\":\"Sustained hostility detected.\"}");
-
-        List<PanelistSelection> panelists = List.of(new PanelistSelection("skeptic", null));
-        SessionResponse response = interviewService.createSession(userId,
-                new CreateSessionRequest("Backend Engineer", "text", null, panelists, null));
-
-        assertThat(response.completed()).isTrue();
-        assertThat(response.terminatedByPanel()).isTrue();
-        assertThat(response.terminationReason()).isEqualTo("Sustained hostility detected.");
-        assertThat(response.currentQuestion()).isNull();
-
-        ArgumentCaptor<InterviewSession> captor = ArgumentCaptor.forClass(InterviewSession.class);
-        verify(sessionRepository, times(2)).save(captor.capture()); // initial create + completion update
-        assertThat(captor.getValue().getStatus()).isEqualTo("completed");
     }
 
     // --- submitAnswer: ownership + idempotency ------------------------------------

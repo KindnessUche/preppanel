@@ -162,4 +162,48 @@ class ScoringServiceTest {
         assertThat(saved.getStructureScore()).isEqualTo(0);  // clamped from -20
         assertThat(saved.getFeedbackText()).isEqualTo("Good STAR structure.");
     }
+
+    private SessionQuestion turn(int seq, String turnType) {
+        SessionQuestion q = question(seq);
+        q.setTurnType(turnType);
+        return q;
+    }
+
+    @Test
+    void scoreSession_doesNotScoreTheOpeningOrTheWrapUp() {
+        InterviewSession session = sessionOwnedBy(userId);
+        SessionQuestion opening = turn(1, "opening");
+        SessionQuestion wrapUp = turn(2, "wrap_up");
+        Answer a1 = answerFor(opening.getId());
+        Answer a2 = answerFor(wrapUp.getId());
+
+        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session));
+        when(questionRepository.findBySessionIdOrderBySequenceNumAsc(sessionId)).thenReturn(List.of(opening, wrapUp));
+        when(answerRepository.findByQuestionId(opening.getId())).thenReturn(Optional.of(a1));
+        when(answerRepository.findByQuestionId(wrapUp.getId())).thenReturn(Optional.of(a2));
+
+        scoringService.scoreSession(userId, sessionId);
+
+        verifyNoInteractions(llmService);
+        verify(scoreRepository, never()).save(any());
+    }
+
+    @Test
+    void scoreSession_tagsFollowUps_soTheJudgeDoesNotExpectAFullStarStory() {
+        InterviewSession session = sessionOwnedBy(userId);
+        SessionQuestion probe = turn(3, "probe");
+        Answer a = answerFor(probe.getId());
+
+        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session));
+        when(questionRepository.findBySessionIdOrderBySequenceNumAsc(sessionId)).thenReturn(List.of(probe));
+        when(answerRepository.findByQuestionId(probe.getId())).thenReturn(Optional.of(a));
+        when(scoreRepository.findByAnswerId(a.getId())).thenReturn(Optional.empty());
+        when(llmService.scoreAnswer(anyString(), startsWith("[Follow-up] "), anyString())).thenReturn(
+                "{\"contentScore\":70,\"structureScore\":65,\"technicalScore\":null,\"feedbackText\":\"Direct and specific.\"}");
+
+        scoringService.scoreSession(userId, sessionId);
+
+        verify(llmService).scoreAnswer(anyString(), startsWith("[Follow-up] "), anyString());
+        verify(scoreRepository).save(any(Score.class));
+    }
 }

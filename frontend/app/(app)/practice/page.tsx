@@ -16,6 +16,7 @@ import {
   scoreSession,
   type SessionResponse,
   type PanelistSelection,
+  turnTypeLabel,
 } from "@/lib/interviews";
 import { recordSessionStart, markSessionCompleted } from "@/lib/session-store";
 import { withMinimumDelay } from "@/lib/timing";
@@ -376,7 +377,8 @@ export default function PracticePage() {
       <div className="mx-auto max-w-2xl px-6 pb-28 pt-16 lg:pb-16 lg:pt-20">
         <div className="flex items-center justify-between">
           <span className="fig-label">
-            {q ? `Q${q.sequenceNum} OF 5` : ""} · {session.role.toUpperCase()}
+            {q ? `Q${q.sequenceNum}` : ""}
+            {q && turnTypeLabel(q.turnType) ? ` · ${turnTypeLabel(q.turnType)}` : ""} · {session.role.toUpperCase()}
           </span>
           <button
             onClick={handleEndEarly}

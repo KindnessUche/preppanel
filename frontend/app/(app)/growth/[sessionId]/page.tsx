@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { readJsonOrThrow, ApiError } from "@/lib/api";
-import { getSessionReport, scoreSession, type SessionReportResponse } from "@/lib/interviews";
+import { getSessionReport, scoreSession, turnTypeLabel, type SessionReportResponse } from "@/lib/interviews";
 import ScoreRadar from "@/components/app/ScoreRadar";
 
 export default function ReportPage() {
@@ -123,6 +123,11 @@ export default function ReportPage() {
             >
               <span className="text-sm text-ink">
                 Q{item.sequenceNum}
+                {item.turnType && item.turnType !== "new_topic" && (
+                  <span className="ml-1 font-mono text-[10px] text-faint">
+                    {turnTypeLabel(item.turnType) || ""}
+                  </span>
+                )}
                 {item.panelistName && (
                   <span className="text-muted"> · {item.panelistName}</span>
                 )}

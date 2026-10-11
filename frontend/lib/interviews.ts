@@ -12,6 +12,26 @@ export interface QuestionResponse {
   panelistName: string | null;
   reactionText: string | null; // reaction to the PREVIOUS answer; "" for the first question
   moodShift: string | null; // "positive" | "neutral" | "negative"
+  /** What kind of move the panel is making: the opening, a new topic, a follow-up, a challenge, or the close. */
+  turnType: TurnType | null;
+}
+
+export type TurnType = "opening" | "new_topic" | "probe" | "challenge" | "wrap_up";
+
+/** Short label for the question header, e.g. "FOLLOW-UP". Empty for ordinary topic questions. */
+export function turnTypeLabel(t: TurnType | string | null | undefined): string {
+  switch (t) {
+    case "opening":
+      return "OPENING";
+    case "probe":
+      return "FOLLOW-UP";
+    case "challenge":
+      return "PUSHING BACK";
+    case "wrap_up":
+      return "CLOSING";
+    default:
+      return "";
+  }
 }
 
 export interface SessionResponse {
@@ -48,6 +68,7 @@ export interface SessionReportResponse {
     panelistName: string | null;
     answerText: string | null;
     score: ScoreResponse | null;
+    turnType: TurnType | null;
   }[];
 }
 

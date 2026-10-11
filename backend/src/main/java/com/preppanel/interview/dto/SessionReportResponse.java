@@ -17,7 +17,8 @@ public record SessionReportResponse(
             String questionText,
             String panelistName,
             String answerText,
-            ScoreResponse score // null if this answer hasn't been scored yet
+            ScoreResponse score, // null if this answer hasn't been scored yet (opening/wrap-up turns are never scored)
+            String turnType // "opening" | "new_topic" | "probe" | "challenge" | "wrap_up"
     ) {
     }
 }

@@ -51,4 +51,13 @@ public class SessionQuestion {
 
     @Column(name = "mood_shift")
     private String moodShift; // positive | neutral | negative
+
+    // opening | new_topic | probe | challenge | wrap_up (see TurnType)
+    @Builder.Default
+    @Column(name = "turn_type", nullable = false)
+    private String turnType = "new_topic";
+
+    // Which plan topic this question belongs to (InterviewPlan.Topic#id); null for legacy/bank questions.
+    @Column(name = "topic_id")
+    private String topicId;
 }
