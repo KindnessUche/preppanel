@@ -12,4 +12,8 @@ public record CreateSessionRequest(
         String experienceLevel, // optional: "junior" | "mid" | "senior" | "staff" - calibrates difficulty
         String targetContext // optional: condensed prep brief; max 6000 chars
 ) {
+    /** Keeps the original 5-argument form (no prep brief) working for existing callers and tests. */
+    public CreateSessionRequest(String role, String mode, String tone, List<PanelistSelection> panelists, String experienceLevel) {
+        this(role, mode, tone, panelists, experienceLevel, null);
+    }
 }
