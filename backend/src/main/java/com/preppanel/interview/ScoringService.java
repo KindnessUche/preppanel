@@ -77,12 +77,32 @@ public class ScoringService {
                 .structureScore(clamp(judgment.structureScore()))
                 .technicalScore(judgment.technicalScore() == null ? null : clamp(judgment.technicalScore()))
                 .deliveryScore(deliveryScoreFor(answer))
+                .detail(detailJson(judgment))
                 .feedbackText(judgment.feedbackText() == null || judgment.feedbackText().isBlank()
                         ? "No specific feedback generated."
                         : judgment.feedbackText())
                 .build();
 
         scoreRepository.save(score);
+    }
+
+    private String detailJson(ScoreJudgment j) {
+        try {
+            var d = j.detail();
+            return d == null ? null : objectMapper.writeValueAsString(d);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private java.util.Map<String, Object> readDetail(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            return objectMapper.readValue(json, java.util.Map.class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** Only voice answers have metrics; typed answers get no delivery score (null). */
@@ -156,7 +176,8 @@ public class ScoringService {
                                     score.getStructureScore(),
                                     score.getTechnicalScore(),
                                     score.getDeliveryScore(),
-                                    score.getFeedbackText()
+                                    score.getFeedbackText(),
+                                    readDetail(score.getDetail())
                             );
                         }
                     }

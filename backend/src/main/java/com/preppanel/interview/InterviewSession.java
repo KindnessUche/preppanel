@@ -54,6 +54,10 @@ public class InterviewSession {
     @org.hibernate.annotations.ColumnTransformer(write = "?::jsonb")
     private String plan;
 
+    // Condensed prep brief (job description, company, interview type) so every turn knows what this interview is for.
+    @Column(name = "target_context", columnDefinition = "text")
+    private String targetContext;
+
     @Column(name = "experience_level")
     private String experienceLevel; // junior | mid | senior | staff - optional
 

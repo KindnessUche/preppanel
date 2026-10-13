@@ -140,21 +140,32 @@ public class LlmService {
      */
     public String scoreAnswer(String role, String questionText, String answerText) {
         String systemPrompt = """
-                You are an expert interview coach scoring a candidate's answer to a behavioral
-                interview question. Respond with ONLY a single JSON object, no markdown fences,
-                no prose before or after it. The JSON must have exactly these fields:
+                You are a demanding but fair interview coach analysing ONE answer. Answers may be voice transcripts
+                with filler words and no punctuation - ignore that. Be specific: quote or closely paraphrase what the
+                candidate said, never give generic advice. Respond with ONLY one JSON object, no markdown fences:
                 {
-                  "contentScore": <integer 0-100, how relevant and substantive the answer is>,
-                  "structureScore": <integer 0-100, how well it follows a clear structure like STAR>,
-                  "technicalScore": null,
-                  "feedbackText": "<2-4 sentences of specific, constructive feedback>"
+                  "contentScore": <0-100 relevance and substance>,
+                  "structureScore": <0-100 clarity and structure, e.g. STAR for behavioral>,
+                  "technicalScore": <0-100 or null if the question is not technical>,
+                  "onTopic": <true if they answered what was actually asked>,
+                  "driftNote": "<where and how they drifted from the question, or null>",
+                  "depth": "shallow" | "adequate" | "deep",
+                  "structureNotes": "<1-2 sentences: what order they told it in, what was missing or out of place>",
+                  "accuracyIssues": ["<claims that are technically/factually wrong, internally inconsistent, contradict
+                    each other, or are implausible/unsupported. You cannot verify personal history, so flag only what a
+                    sharp interviewer would doubt, and say why. Empty array if none.>"],
+                  "strengths": ["<1-3 concrete things done well>"],
+                  "improvements": ["<1-3 concrete fixes, most important first>"],
+                  "modelAnswer": "<a stronger answer of 4-7 sentences that reuses ONLY facts the candidate gave; do not invent
+                    employers, numbers or projects. Mark gaps as [add: ...]>",
+                  "feedbackText": "<2-4 sentences, the single most useful takeaway>"
                 }
-                Do not include any text outside the JSON object.
+                Depth: "shallow" = asserts without explaining how or why, no mechanism, example or trade-off;
+                "deep" = explains reasoning, constraints, and outcome. Do not reward length.
 
-                If the question starts with "[Follow-up]", it is a short, narrow follow-up to an earlier answer, not
-                a fresh behavioral question. Judge it as one: contentScore is how directly and specifically it answers
-                what was asked; structureScore is how clear and well-organised the reply is, NOT whether it contains a
-                full STAR story.
+                If the question starts with "[Follow-up]", it is a short, narrow follow-up, not a fresh behavioral
+                question: judge how directly and specifically it answers what was asked, and do not expect a full STAR
+                story.
                 """;
 
         String userPrompt = """
@@ -166,6 +177,34 @@ public class LlmService {
                 """.formatted(role, questionText, answerText);
 
         return completeWithFallback(systemPrompt, userPrompt);
+    }
+
+    /** Builds the interview brief from the job description, company and resume summary. Returns raw JSON. */
+    public String generatePrepBrief(String role, String level, String interviewType, String company,
+                                    String jobDescription, String candidateSummary) {
+        String system = """
+                You are an interview-prep coach building a brief for ONE upcoming interview. Ground everything in the
+                job description. Company notes beyond the job description come from your general knowledge and may be
+                outdated: put them only in "companyNotes", keep them cautious, and never invent facts, people, products
+                or numbers. If you do not know the company, say so there. Respond with ONLY this JSON, no fences:
+                {
+                  "summary": "<2 sentences: what this role really is and what they will screen for>",
+                  "competencies": [{"name":"","whyItMatters":"","likelyQuestion":""}],
+                  "gaps": [{"requirement":"","risk":"<how the candidate's background might fall short>","howToHandle":""}],
+                  "strengths": ["<requirements the candidate's background clearly supports>"],
+                  "storyBank": [{"story":"<an experience to tell, from the candidate's background; if none is available, a prompt for what to dig up>","competencies":[""]}],
+                  "questionsToAsk": ["<5 sharp questions for the interviewer>"],
+                  "companyNotes": ["<0-4 cautious notes; prefix each with 'Verify:'>"]
+                }
+                Give 4-6 competencies, 2-4 gaps, 4-6 stories.
+                """;
+        String user = "Role: " + role + "\nLevel: " + (level == null || level.isBlank() ? "not specified" : level)
+                + "\nInterview type: " + (interviewType == null || interviewType.isBlank() ? "general" : interviewType)
+                + "\nCompany: " + (company == null || company.isBlank() ? "not given" : company)
+                + "\n\nCandidate background:\n" + (candidateSummary == null || candidateSummary.isBlank() ? "(none uploaded)" : candidateSummary)
+                + "\n\nJob description:\n" + (jobDescription == null || jobDescription.isBlank() ? "(not provided)" : jobDescription)
+                + "\n\nBuild the brief.";
+        return completeWithFallback(system, user);
     }
 
     /**

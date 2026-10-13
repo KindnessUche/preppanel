@@ -1,156 +1,213 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useInView } from "@/lib/useInView";
+import Link from "next/link";
+import { useAuth } from "@/lib/auth-context";
+import { readJsonOrThrow, ApiError } from "@/lib/api";
+import { llmHeaders } from "@/lib/settings-store";
 
 const PREP_KEY = "preppanel_prep_profile";
+const BRIEF_KEY = "preppanel_prep_brief";
+const LEVELS = ["junior", "mid", "senior", "staff"];
+const TYPES = ["Recruiter screen", "Behavioral", "Technical", "Panel", "Final round"];
 
-interface PrepProfile {
-  targetRole: string;
-  experienceLevel: string;
+interface Brief {
+  summary?: string;
+  competencies?: { name: string; whyItMatters: string; likelyQuestion: string }[];
+  gaps?: { requirement: string; risk: string; howToHandle: string }[];
+  strengths?: string[];
+  storyBank?: { story: string; competencies: string[] }[];
+  questionsToAsk?: string[];
+  companyNotes?: string[];
 }
 
-function useLocalProfile() {
-  const [profile, setProfile] = useState<PrepProfile>({ targetRole: "", experienceLevel: "" });
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PREP_KEY);
-      if (raw) setProfile(JSON.parse(raw));
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  function save(next: PrepProfile) {
-    setProfile(next);
-    localStorage.setItem(PREP_KEY, JSON.stringify(next));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-  }
-
-  return { profile, save, saved };
+interface Saved {
+  role: string;
+  level: string;
+  company: string;
+  interviewType: string;
+  jd: string;
+  brief: Brief;
+  context: string;
 }
 
-function DossierPreview() {
-  const { ref, inView } = useInView<HTMLDivElement>(0.3);
-  const [started, setStarted] = useState(false);
+/** Condensed text every interview turn receives, so the panel knows what this interview is for. */
+function buildContext(f: Omit<Saved, "brief" | "context">, b: Brief): string {
+  const L = (t: string, xs?: string[]) => (xs?.length ? `${t}:\n- ${xs.join("\n- ")}\n` : "");
+  return [
+    `Company: ${f.company || "unspecified"}. Interview type: ${f.interviewType}.`,
+    b.summary ?? "",
+    L("Competencies they will screen for", b.competencies?.map((c) => `${c.name} (e.g. ${c.likelyQuestion})`)),
+    L("Weak spots in this candidate versus the role (probe these)", b.gaps?.map((g) => `${g.requirement}: ${g.risk}`)),
+    L("Strengths", b.strengths),
+    `Job description excerpt:\n${f.jd.slice(0, 2500)}`,
+  ].join("\n").slice(0, 5800);
+}
 
-  const steps = [
-    "Researching Stripe...",
-    "✓ Found careers page",
-    "✓ Found engineering blog (3 recent posts)",
-    "… Reading posts",
-    "… Summarizing themes",
-  ];
+const input =
+  "mt-2 w-full rounded-lg border border-line bg-canvas px-4 py-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent";
 
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div ref={ref} className="panel-texture rounded-2xl border border-line bg-panel/40 p-6">
-      <div className="flex items-center justify-between">
-        <span className="fig-label">THEM — COMPANY DOSSIER</span>
-        <span className="fig-label text-faint">PLANNED</span>
-      </div>
-      <p className="mt-3 text-sm leading-relaxed text-muted">
-        Not live yet — this is a preview of how it'll work once the research
-        pipeline is built. Real research will cite its sources, tab by
-        theme, and show when it was last refreshed.
-      </p>
-
-      <button
-        onClick={() => setStarted(true)}
-        disabled={started}
-        className="mt-4 rounded-md border border-line px-4 py-2 font-mono text-xs text-muted transition hover:border-lineStrong hover:text-ink disabled:opacity-50"
-      >
-        {started ? "Previewing…" : "Preview the research flow"}
-      </button>
-
-      {started && (
-        <div className="mt-5 space-y-2 border-t border-line pt-5 font-mono text-[13px]">
-          {steps.map((line, i) => (
-            <div
-              key={i}
-              className="text-muted opacity-0"
-              style={{ animation: "fadeIn 0.5s ease forwards", animationDelay: `${i * 0.6}s` }}
-            >
-              {line}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <style jsx>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(4px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+    <div className="border-t border-line pt-5">
+      <span className="fig-label">{title}</span>
+      <div className="mt-3 space-y-3 text-sm leading-relaxed text-muted">{children}</div>
     </div>
   );
 }
 
 export default function PrepPage() {
-  const { profile, save, saved } = useLocalProfile();
-  const [role, setRole] = useState(profile.targetRole);
-  const [level, setLevel] = useState(profile.experienceLevel);
+  const { authFetch } = useAuth();
+  const [f, setF] = useState({ role: "", level: "mid", company: "", interviewType: "Behavioral", jd: "" });
+  const [saved, setSaved] = useState<Saved | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setRole(profile.targetRole);
-    setLevel(profile.experienceLevel);
-  }, [profile]);
+    try {
+      const s: Saved | null = JSON.parse(localStorage.getItem(BRIEF_KEY) ?? "null");
+      if (s) {
+        setSaved(s);
+        setF({ role: s.role, level: s.level, company: s.company, interviewType: s.interviewType, jd: s.jd });
+      } else {
+        const p = JSON.parse(localStorage.getItem(PREP_KEY) ?? "null");
+        if (p?.targetRole) setF((x) => ({ ...x, role: p.targetRole }));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setF((x) => ({ ...x, [k]: e.target.value }));
+
+  async function build() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await authFetch("/api/prep/brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...llmHeaders() },
+        body: JSON.stringify({ role: f.role, level: f.level, company: f.company, interviewType: f.interviewType, jobDescription: f.jd }),
+      });
+      const brief = await readJsonOrThrow<Brief>(res);
+      const next: Saved = { ...f, brief, context: buildContext(f, brief) };
+      setSaved(next);
+      localStorage.setItem(BRIEF_KEY, JSON.stringify(next));
+      localStorage.setItem(PREP_KEY, JSON.stringify({ targetRole: f.role, experienceLevel: f.level }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not build the brief. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const b = saved?.brief;
 
   return (
     <div className="mx-auto max-w-2xl px-6 pb-28 pt-16 lg:pb-16 lg:pt-20">
       <span className="fig-label">PREP</span>
-      <h1 className="mt-2 text-3xl font-semibold tracking-tight text-ink">
-        You, and them.
-      </h1>
+      <h1 className="mt-2 text-3xl font-semibold tracking-tight text-ink">What are you walking into?</h1>
       <p className="mt-2 text-sm text-muted">
-        What you bring to the table, and what you're walking into.
+        Paste the job description and the panel will interview you for <em>this</em> role, pressing on where your
+        background is weakest against it.
       </p>
 
       <div className="panel-texture mt-8 rounded-2xl border border-line bg-panel/40 p-6">
-        <div className="flex items-center justify-between">
-          <span className="fig-label">YOU</span>
-          <span className="fig-label text-faint">SAVED ON THIS DEVICE</span>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="fig-label block text-faint">TARGET ROLE</label>
-            <input
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              placeholder="e.g. Backend Engineer"
-              className="mt-2 w-full rounded-lg border border-line bg-canvas px-4 py-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent"
-            />
+            <input value={f.role} onChange={set("role")} placeholder="e.g. Backend Engineer" className={input} />
           </div>
           <div>
-            <label className="fig-label block text-faint">EXPERIENCE LEVEL</label>
-            <input
-              value={level}
-              onChange={(e) => setLevel(e.target.value)}
-              placeholder="e.g. Mid-level, 3 years"
-              className="mt-2 w-full rounded-lg border border-line bg-canvas px-4 py-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent"
-            />
+            <label className="fig-label block text-faint">COMPANY</label>
+            <input value={f.company} onChange={set("company")} placeholder="e.g. Stripe" className={input} />
           </div>
-          <button
-            onClick={() => save({ targetRole: role, experienceLevel: level })}
-            className="self-start rounded-md border border-line px-4 py-2 font-mono text-xs text-ink transition hover:border-lineStrong"
-          >
-            {saved ? "Saved ✓" : "Save"}
-          </button>
+          <div>
+            <label className="fig-label block text-faint">LEVEL</label>
+            <select value={f.level} onChange={set("level")} className={input}>
+              {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="fig-label block text-faint">INTERVIEW TYPE</label>
+            <select value={f.interviewType} onChange={set("interviewType")} className={input}>
+              {TYPES.map((t) => <option key={t}>{t}</option>)}
+            </select>
+          </div>
         </div>
-
-        <p className="mt-4 border-t border-line pt-4 text-xs text-faint">
-          Resume upload and a synced profile are planned — for now this is
-          stored locally and used to pre-fill Practice.
+        <div className="mt-4">
+          <label className="fig-label block text-faint">JOB DESCRIPTION</label>
+          <textarea value={f.jd} onChange={set("jd")} rows={8} maxLength={12000} placeholder="Paste the full posting. The more of it, the sharper the questions." className={input + " resize-y"} />
+        </div>
+        {error && <div className="mt-4 rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-300">{error}</div>}
+        <button
+          onClick={build}
+          disabled={busy || !f.role.trim() || f.jd.trim().length < 80}
+          className="mt-5 rounded-md bg-ink px-6 py-3 font-mono text-sm font-medium text-canvas transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy ? "Building your brief…" : saved ? "Rebuild brief" : "Build my brief"}
+        </button>
+        <p className="mt-3 text-xs text-faint">
+          Your resume (Account) is used if uploaded. Company notes come from the AI&apos;s general knowledge, not live
+          research, so they&apos;re marked &ldquo;Verify&rdquo;.
         </p>
       </div>
 
-      <div className="mt-6">
-        <DossierPreview />
-      </div>
+      {b && saved && (
+        <div className="panel-texture mt-6 space-y-5 rounded-2xl border border-line bg-panel/40 p-6">
+          <div className="flex items-center justify-between">
+            <span className="fig-label">YOUR BRIEF · {saved.role.toUpperCase()}{saved.company && ` @ ${saved.company.toUpperCase()}`}</span>
+            <Link href="/practice" className="rounded-md bg-accent/90 px-4 py-2 font-mono text-xs text-canvas transition hover:bg-accent">
+              Practice this interview →
+            </Link>
+          </div>
+          {b.summary && <p className="text-sm leading-relaxed text-ink">{b.summary}</p>}
+
+          {!!b.competencies?.length && (
+            <Section title="WHAT THEY'LL SCREEN FOR">
+              {b.competencies.map((c, i) => (
+                <div key={i}>
+                  <p className="text-ink">{c.name}</p>
+                  <p>{c.whyItMatters}</p>
+                  <p className="italic text-faint">Likely: &ldquo;{c.likelyQuestion}&rdquo;</p>
+                </div>
+              ))}
+            </Section>
+          )}
+          {!!b.gaps?.length && (
+            <Section title="WHERE YOU'LL GET PRESSED">
+              {b.gaps.map((g, i) => (
+                <div key={i}>
+                  <p className="text-ink">{g.requirement}</p>
+                  <p>{g.risk}</p>
+                  <p className="text-faint">How to handle it: {g.howToHandle}</p>
+                </div>
+              ))}
+            </Section>
+          )}
+          {!!b.storyBank?.length && (
+            <Section title="STORY BANK">
+              {b.storyBank.map((s, i) => (
+                <p key={i}>
+                  <span className="text-ink">{s.story}</span>{" "}
+                  <span className="font-mono text-[10px] text-faint">{s.competencies?.join(" · ")}</span>
+                </p>
+              ))}
+            </Section>
+          )}
+          {!!b.questionsToAsk?.length && (
+            <Section title="QUESTIONS TO ASK THEM">
+              <ul className="list-disc space-y-1 pl-5">{b.questionsToAsk.map((q, i) => <li key={i}>{q}</li>)}</ul>
+            </Section>
+          )}
+          {!!b.companyNotes?.length && (
+            <Section title="COMPANY NOTES (UNVERIFIED)">
+              <ul className="list-disc space-y-1 pl-5">{b.companyNotes.map((q, i) => <li key={i}>{q}</li>)}</ul>
+            </Section>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -48,10 +48,10 @@ class TurnDirectorTest {
     }
 
     @Test
-    void aSidesteppedQuestion_isProbedEvenWithNoNamedGap() {
+    void aSidesteppedQuestion_isRedirectedEvenWithNoNamedGap() {
         AnswerAnalysis dodged = new AnswerAnalysis(null, "none", null, null, false, false);
 
-        assertThat(TurnDirector.next(plan, List.of(a(OPENING, "intro"), a(NEW_TOPIC, "t1")), dodged).type()).isEqualTo(PROBE);
+        assertThat(TurnDirector.next(plan, List.of(a(OPENING, "intro"), a(NEW_TOPIC, "t1")), dodged).type()).isEqualTo(com.preppanel.llm.dto.TurnType.REDIRECT);
     }
 
     @Test

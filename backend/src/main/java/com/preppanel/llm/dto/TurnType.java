@@ -6,6 +6,7 @@ public enum TurnType {
     NEW_TOPIC,
     PROBE,
     CHALLENGE,
+    REDIRECT, // candidate dodged, refused, or drifted: restate the question, don't move on
     WRAP_UP;
 
     public String db() {
@@ -22,6 +23,6 @@ public enum TurnType {
     }
 
     public boolean isFollowUp() {
-        return this == PROBE || this == CHALLENGE;
+        return this == PROBE || this == CHALLENGE || this == REDIRECT;
     }
 }

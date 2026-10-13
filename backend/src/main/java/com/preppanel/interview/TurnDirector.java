@@ -70,7 +70,10 @@ final class TurnDirector {
                 && budgetLeft > uncovered.size();
 
         if (canFollowUp) {
-            boolean hasGap = !"none".equals(a.gap()) || Boolean.FALSE.equals(a.answeredQuestion());
+            if (Boolean.FALSE.equals(a.answeredQuestion())) {
+                return new TurnPlan(TurnType.REDIRECT, current);
+            }
+            boolean hasGap = !"none".equals(a.gap());
             if (hasGap) {
                 return new TurnPlan(TurnType.PROBE, current);
             }

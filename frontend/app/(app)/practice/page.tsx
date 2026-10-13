@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { speak, stopSpeaking, warmVoices, ttsSupported } from "@/lib/tts";
 import { useRouter } from "next/navigation";
 import VoiceRecorder from "@/components/VoiceRecorder";
 import type { AudioMetrics } from "@/lib/voice";
@@ -26,6 +27,8 @@ import Orb, { type OrbState } from "@/components/app/Orb";
 type Stage = "setup" | "lobby" | "live" | "debrief";
 
 const PREP_KEY = "preppanel_prep_profile";
+const BRIEF_KEY = "preppanel_prep_brief";
+const TTS_KEY = "preppanel_tts_on";
 
 interface CastSlot {
   archetypeId: string;
@@ -67,6 +70,13 @@ export default function PracticePage() {
   const [error, setError] = useState<string | null>(null);
   const [debriefStep, setDebriefStep] = useState(0);
   const [debriefTerminated, setDebriefTerminated] = useState<string | null>(null);
+  const [voiceOn, setVoiceOn] = useState(true);
+  const [speaking, setSpeaking] = useState(false);
+  const [nudge, setNudge] = useState<string | null>(null);
+  const [targetContext, setTargetContext] = useState<string | undefined>();
+  const [briefLabel, setBriefLabel] = useState<string | null>(null);
+  const lastActivity = useRef(Date.now());
+  const nudgeCount = useRef(0);
 
   useEffect(() => {
     try {
@@ -75,6 +85,15 @@ export default function PracticePage() {
         const parsed = JSON.parse(raw);
         if (parsed.targetRole) setRole(parsed.targetRole);
       }
+      const b = JSON.parse(localStorage.getItem(BRIEF_KEY) ?? "null");
+      if (b?.context) {
+        setTargetContext(b.context);
+        setBriefLabel([b.role, b.company].filter(Boolean).join(" @ "));
+        if (b.role) setRole((r) => r || b.role);
+        if (["junior", "mid", "senior", "staff"].includes(b.level)) setExperienceLevel((l) => l ?? b.level);
+      }
+      setVoiceOn(localStorage.getItem(TTS_KEY) !== "0");
+      warmVoices();
     } catch {
       /* ignore */
     }
@@ -98,7 +117,7 @@ export default function PracticePage() {
     setError(null);
     try {
       const panelists: PanelistSelection[] = cast.map((c) => ({ archetypeId: c.archetypeId, name: c.name }));
-      const res = await createSession(authFetch, { role, panelists, experienceLevel: experienceLevel ?? undefined });
+      const res = await createSession(authFetch, { role, panelists, experienceLevel: experienceLevel ?? undefined, targetContext });
       const data = await readJsonOrThrow<SessionResponse>(res);
       setSession(data);
       recordSessionStart(data.sessionId, data.role, data.panelists.map((p) => p.name));
@@ -181,6 +200,70 @@ export default function PracticePage() {
       .catch(() => {
         router.push(`/growth/${sessionId}`);
       });
+  }
+
+  // ---------------------------------------------------------------- the interviewer speaks + checks in
+  const qid = session?.currentQuestion?.questionId;
+
+  useEffect(() => {
+    if (stage !== "live" || revealingQuestion || !qid || !session?.currentQuestion) return;
+    nudgeCount.current = 0;
+    lastActivity.current = Date.now();
+    setNudge(null);
+    if (!voiceOn || !ttsSupported()) return;
+    const q = session.currentQuestion;
+    setSpeaking(true); // optimistic, so the mic never opens under the first word
+    const done = () => {
+      setSpeaking(false);
+      lastActivity.current = Date.now();
+    };
+    speak([q.reactionText, q.questionText].filter(Boolean).join(" "), q.panelistArchetypeId, { onEnd: done });
+    return () => {
+      stopSpeaking();
+      setSpeaking(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, qid, revealingQuestion, voiceOn]);
+
+  useEffect(() => {
+    lastActivity.current = Date.now();
+    setNudge(null);
+  }, [answerText]);
+
+  // Like a real interviewer: after silence, check in, then repeat the question, then offer a way out.
+  useEffect(() => {
+    if (stage !== "live" || revealingQuestion || busy || !qid) return;
+    const id = setInterval(() => {
+      const q = session?.currentQuestion;
+      if (!q || speaking || answerText.trim()) return;
+      const idle = (Date.now() - lastActivity.current) / 1000;
+      const n = nudgeCount.current;
+      const line =
+        n === 0 && idle > 25
+          ? "Take your time. Would it help if I repeated the question?"
+          : n === 1 && idle > 30
+            ? `Let me repeat that. ${q.questionText}`
+            : n === 2 && idle > 40
+              ? "If this one isn't landing, say so, and tell me the closest experience you do have."
+              : null;
+      if (!line) return;
+      nudgeCount.current = n + 1;
+      lastActivity.current = Date.now();
+      setNudge(line);
+      if (voiceOn && ttsSupported()) {
+        setSpeaking(true);
+        speak(line, q.panelistArchetypeId, { onEnd: () => { setSpeaking(false); lastActivity.current = Date.now(); } });
+      }
+    }, 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, revealingQuestion, busy, qid, speaking, answerText, voiceOn]);
+
+  function toggleVoice() {
+    const next = !voiceOn;
+    setVoiceOn(next);
+    localStorage.setItem(TTS_KEY, next ? "1" : "0");
+    if (!next) stopSpeaking();
   }
 
   // ---------------------------------------------------------------- setup
@@ -380,6 +463,12 @@ export default function PracticePage() {
             {q ? `Q${q.sequenceNum}` : ""}
             {q && turnTypeLabel(q.turnType) ? ` · ${turnTypeLabel(q.turnType)}` : ""} · {session.role.toUpperCase()}
           </span>
+          <div className="flex items-center gap-4">
+            {ttsSupported() && (
+              <button onClick={toggleVoice} className="font-mono text-[11px] text-faint transition hover:text-muted">
+                {voiceOn ? "Interviewer voice: on" : "Interviewer voice: off"}
+              </button>
+            )}
           <button
             onClick={handleEndEarly}
             disabled={busy}
@@ -387,12 +476,13 @@ export default function PracticePage() {
           >
             End early
           </button>
+          </div>
         </div>
 
         <div className="panel-texture mt-6 rounded-2xl border border-line bg-panel/40 p-6 sm:p-8">
           <div className="flex items-start gap-4">
             <Orb
-              state={revealingQuestion ? "thinking" : moodToOrbState(q?.moodShift)}
+              state={revealingQuestion ? "thinking" : speaking ? "speaking" : moodToOrbState(q?.moodShift)}
               size={40}
               color={speakerColor}
             />
@@ -410,6 +500,7 @@ export default function PracticePage() {
                     <p className="mt-1 text-sm italic text-muted">"{q.reactionText}"</p>
                   )}
                   <p className="mt-2 text-lg leading-relaxed text-ink">{q?.questionText}</p>
+                  {nudge && <p className="mt-3 text-sm italic text-muted">{q?.panelistName}: &ldquo;{nudge}&rdquo;</p>}
                 </>
               )}
             </div>
@@ -448,7 +539,8 @@ export default function PracticePage() {
                   mic={mic}
                   disabled={busy}
                   autoStart={settings.autoListen && !answerText.trim()}
-                  suspended={userTyped}
+                  suspended={userTyped || speaking}
+                  onActivity={() => { lastActivity.current = Date.now(); setNudge(null); }}
                   onManualStart={() => setUserTyped(false)}
                   autoSend={settings.autoSend}
                   silenceSeconds={settings.silenceSeconds}

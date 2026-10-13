@@ -151,6 +151,7 @@ export default function ReportPage() {
                     <p className="mt-1 text-sm text-muted">{item.score.feedbackText}</p>
                   </div>
                 )}
+                {item.score?.detail && <AnswerAnalysis d={item.score.detail} />}
                 {item.score && (
                   <p className="font-mono text-[11px] text-faint">
                     Content {item.score.contentScore} · Structure {item.score.structureScore}
@@ -178,6 +179,40 @@ export default function ReportPage() {
           Export PDF
         </button>
       </div>
+    </div>
+  );
+}
+
+function AnswerAnalysis({ d }: { d: NonNullable<import("@/lib/interviews").ScoreResponse["detail"]> }) {
+  const List = ({ t, xs, tone }: { t: string; xs?: string[]; tone?: string }) =>
+    xs?.length ? (
+      <div>
+        <span className="fig-label">{t}</span>
+        <ul className={"mt-1 list-disc space-y-1 pl-5 text-sm " + (tone ?? "text-muted")}>{xs.map((x, i) => <li key={i}>{x}</li>)}</ul>
+      </div>
+    ) : null;
+  return (
+    <div className="space-y-3 border-t border-line pt-3">
+      <p className="font-mono text-[11px] text-faint">
+        {d.onTopic === false ? "Off the question asked" : "On the question"}
+        {d.depth && ` · ${d.depth} depth`}
+      </p>
+      {d.driftNote && <p className="text-sm text-amber-300">Drift: {d.driftNote}</p>}
+      {d.structureNotes && (
+        <div>
+          <span className="fig-label">STRUCTURE</span>
+          <p className="mt-1 text-sm text-muted">{d.structureNotes}</p>
+        </div>
+      )}
+      <List t="ACCURACY & CREDIBILITY FLAGS" xs={d.accuracyIssues} tone="text-amber-300" />
+      <List t="WHAT WORKED" xs={d.strengths} />
+      <List t="FIX THESE" xs={d.improvements} />
+      {d.modelAnswer && (
+        <div>
+          <span className="fig-label">A STRONGER VERSION (YOUR FACTS ONLY)</span>
+          <p className="mt-1 text-sm leading-relaxed text-ink">{d.modelAnswer}</p>
+        </div>
+      )}
     </div>
   );
 }

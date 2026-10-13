@@ -61,7 +61,7 @@ public class InterviewService {
         String experienceLevel = normalizeExperienceLevel(request.experienceLevel());
 
         // Plan first, then save: if the AI key is missing or rejected this throws before any session row exists.
-        String planJson = panelists.isEmpty() ? null : serializePlan(buildPlan(userId, request.role(), experienceLevel, panelists));
+        String planJson = panelists.isEmpty() ? null : serializePlan(buildPlan(userId, request.role(), experienceLevel, panelists, cleanContext(request.targetContext())));
 
         InterviewSession session = InterviewSession.builder()
                 .userId(userId)
@@ -70,6 +70,7 @@ public class InterviewService {
                 .tone(normalizeTone(request.tone()))
                 .panelists(serializePanelists(panelists))
                 .plan(planJson)
+                .targetContext(cleanContext(request.targetContext()))
                 .experienceLevel(experienceLevel)
                 .status("in_progress")
                 .terminatedByPanel(false)
@@ -208,7 +209,7 @@ public class InterviewService {
      */
     private TurnOutcome generateNextTurn(UUID userId, InterviewSession session, int sequenceNum) {
         List<PanelistSelection> panelists = deserializePanelists(session.getPanelists());
-        String candidateSummary = profileService.getCandidateSummaryForPrompt(userId);
+        String candidateSummary = withContext(profileService.getCandidateSummaryForPrompt(userId), session.getTargetContext());
 
         if (panelists.isEmpty()) {
             return TurnOutcome.of(generateLegacyToneQuestion(session, sequenceNum, candidateSummary));
@@ -344,11 +345,22 @@ public class InterviewService {
 
     // --- interview plan + assessor -----------------------------------------------------
 
-    private InterviewPlan buildPlan(UUID userId, String role, String level, List<PanelistSelection> panelists) {
+    static String cleanContext(String c) {
+        if (c == null || c.isBlank()) return null;
+        String t = c.trim();
+        return t.length() > 6000 ? t.substring(0, 6000) : t;
+    }
+
+    static String withContext(String summary, String ctx) {
+        if (ctx == null || ctx.isBlank()) return summary;
+        return (summary == null ? "" : summary) + "\n\nWhat this interview is for (use it to choose and sharpen questions):\n" + ctx;
+    }
+
+    private InterviewPlan buildPlan(UUID userId, String role, String level, List<PanelistSelection> panelists, String ctx) {
         int count = "senior".equals(level) || "staff".equals(level) ? TOPICS_FOR_SENIOR_AND_STAFF : TOPICS_FOR_JUNIOR_AND_MID;
         try {
             String raw = llmService.generateInterviewPlan(
-                    role, level, profileService.getCandidateSummaryForPrompt(userId), rosterOf(panelists), count);
+                    role, level, withContext(profileService.getCandidateSummaryForPrompt(userId), ctx), rosterOf(panelists), count);
             InterviewPlan clean = InterviewPlan.sanitize(objectMapper.readValue(LlmJson.extractObject(raw), InterviewPlan.class), count);
             if (clean != null) return clean;
             log.warn("Interview plan from the model was unusable, using the default plan");
@@ -396,7 +408,7 @@ public class InterviewService {
 
             String raw = llmService.assessAnswer(
                     session.getRole(), session.getExperienceLevel(), topic, topicTurns,
-                    profileService.getCandidateSummaryForPrompt(userId));
+                    withContext(profileService.getCandidateSummaryForPrompt(userId), session.getTargetContext()));
             return objectMapper.readValue(LlmJson.extractObject(raw), AnswerAnalysis.class).normalized();
         } catch (ApiException configProblem) {
             throw configProblem;

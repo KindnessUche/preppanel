@@ -82,7 +82,7 @@ final class InterviewPrompts {
                   words, so a panelist can react to it accurately. null if nothing stands out.
                 - "claimToChallenge": a specific claim a sceptical interviewer would want to stress-test (a large
                   number, a sweeping success claim, a questionable decision), in under 25 words. null if none.
-                - "answeredQuestion": false if they dodged, went off-topic, or said they have no example.
+                - "answeredQuestion": false if they dodged, refused, drifted to a different subject, answered only a sliver of what was asked, or said they have no example. When false, put what happened in gapDetail.
                 - "rambling": true if the answer is long and unfocused.
                 - "gapDetail": if gap is not "none", one sentence naming exactly what is missing, for example
                   "They never said what the outcome was." Otherwise null.
@@ -241,6 +241,16 @@ final class InterviewPrompts {
                             analysis != null && Boolean.FALSE.equals(analysis.answeredQuestion())
                                     ? "\nThey sidestepped the question, so ask it more simply or from a different angle."
                                     : "");
+            case REDIRECT -> """
+                    The candidate did NOT answer your last question: they dodged it, refused, drifted onto something
+                    else, or only answered a sliver. What happened: %s.
+                    Behave like a real interviewer. In "reaction", say in one calm sentence what you noticed ("I think we
+                    drifted a little", "that didn't quite get to what I asked") without scolding. Then, in
+                    "nextQuestion", bring them back: restate the ORIGINAL question more simply, or from a different
+                    angle. If they said they have no example, invite the closest related experience instead. Stay in
+                    persona, stay on the same topic, never move on yet."""
+                    .formatted(analysis == null || analysis.gapDetail() == null
+                            ? "the answer did not address what was asked" : analysis.gapDetail());
             case CHALLENGE -> """
                     Stress-test this claim from the candidate's last answer: "%s".
                     Apply pressure the way your persona would - fair, specific, never hostile - and ask ONE question
@@ -258,6 +268,7 @@ final class InterviewPrompts {
         return switch (t) {
             case PROBE -> ", follow-up";
             case CHALLENGE -> ", pushing back";
+            case REDIRECT -> ", redirecting";
             case OPENING -> ", opening";
             case WRAP_UP -> ", closing";
             default -> "";

@@ -41,6 +41,11 @@ public class Score {
     @Column(name = "feedback_text", nullable = false, columnDefinition = "text")
     private String feedbackText;
 
+    // Deeper analysis (on-topic, depth, accuracy, model answer) as JSON; null for scores made before it existed.
+    @Column(columnDefinition = "jsonb")
+    @org.hibernate.annotations.ColumnTransformer(write = "?::jsonb")
+    private String detail;
+
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 

@@ -38,6 +38,7 @@ export default function VoiceRecorder({
   silenceSeconds,
   onTranscript,
   onManualStart,
+  onActivity,
 }: {
   mic: MicHandle;
   disabled?: boolean;
@@ -51,8 +52,11 @@ export default function VoiceRecorder({
   onTranscript: (text: string, metrics: AudioMetrics | null, autoSend: boolean) => void;
   /** The person pressed the mic button themselves (clears `suspended`). */
   onManualStart: () => void;
+  /** Called whenever new words are heard, so the room knows the candidate is mid-answer. */
+  onActivity?: () => void;
 }) {
   const { authFetch } = useAuth();
+  const suspendedOnceRef = useRef(false);
   const [state, setState] = useState<RecState>("idle");
   const [seconds, setSeconds] = useState(0);
   const [level, setLevel] = useState(0);
@@ -107,7 +111,10 @@ export default function VoiceRecorder({
       cancelAll();
       setState("idle");
       setCaption({ finalized: "", partial: "" });
+    } else if (suspendedOnceRef.current && autoStart && !disabled && mic.stream && state === "idle") {
+      void start(); // released after the interviewer finished speaking: open the mic now
     }
+    suspendedOnceRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suspended]);
 
@@ -137,6 +144,7 @@ export default function VoiceRecorder({
           const len = finalized.length + partial.length;
           if (len !== captionLenRef.current) {
             captionLenRef.current = len;
+            onActivity?.();
             lastVoiceAtRef.current = Date.now();
             if (len > 0 && !spokeRef.current) {
               spokeRef.current = true;

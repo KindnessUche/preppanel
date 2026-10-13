@@ -16,7 +16,7 @@ export interface QuestionResponse {
   turnType: TurnType | null;
 }
 
-export type TurnType = "opening" | "new_topic" | "probe" | "challenge" | "wrap_up";
+export type TurnType = "opening" | "new_topic" | "probe" | "challenge" | "redirect" | "wrap_up";
 
 /** Short label for the question header, e.g. "FOLLOW-UP". Empty for ordinary topic questions. */
 export function turnTypeLabel(t: TurnType | string | null | undefined): string {
@@ -27,6 +27,8 @@ export function turnTypeLabel(t: TurnType | string | null | undefined): string {
       return "FOLLOW-UP";
     case "challenge":
       return "PUSHING BACK";
+    case "redirect":
+      return "BACK TO THE QUESTION";
     case "wrap_up":
       return "CLOSING";
     default:
@@ -53,6 +55,18 @@ export interface ScoreResponse {
   technicalScore: number | null;
   deliveryScore: number | null;
   feedbackText: string;
+  detail?: ScoreDetail | null;
+}
+
+export interface ScoreDetail {
+  onTopic?: boolean;
+  driftNote?: string;
+  depth?: "shallow" | "adequate" | "deep";
+  structureNotes?: string;
+  accuracyIssues?: string[];
+  strengths?: string[];
+  improvements?: string[];
+  modelAnswer?: string;
 }
 
 export interface SessionReportResponse {
@@ -78,6 +92,7 @@ import { llmHeaders } from "@/lib/settings-store";
 export type AuthFetch = (path: string, init?: RequestInit) => Promise<Response>;
 
 export interface CreateSessionParams {
+  targetContext?: string;
   role: string;
   panelists?: PanelistSelection[]; // 1-4 for a real panel; omit/empty for the legacy single-tone flow
   tone?: string; // only used as a fallback when panelists is empty
@@ -94,6 +109,7 @@ export function createSession(authFetch: AuthFetch, params: CreateSessionParams)
       tone: params.tone ?? "neutral",
       panelists: params.panelists ?? [],
       experienceLevel: params.experienceLevel ?? null,
+      targetContext: params.targetContext ?? null,
     }),
   });
 }
